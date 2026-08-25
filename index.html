@@ -279,11 +279,15 @@ function parsePoisToServices(pois, centerLngLat) {
 
   pois.forEach(poi => {
     const dist = AMap.GeometryUtil.distance([cLng, cLat], [poi.location.lng, poi.location.lat]);
-    const isMetro = poi.type.includes('地铁站') || poi.name.includes('地铁站');
+    
+    // 1. 修正 Mode 判定逻辑：只有明确为轨道交通/地铁，且不含"公交站"的才划归地铁
+    const isBus = poi.name.includes('公交站') || poi.type.includes('公交车站');
+    const isMetro = !isBus && (poi.type.includes('地铁站') || poi.type.includes('轨道交通') || poi.name.includes('地铁站'));
     const mode = isMetro ? 'lu' : 'bus';
 
-    // 1. 清洗站点名称
+    // 2. 清洗站点名称：去除 (公交站)、地铁站出入口后缀等
     let cleanStopName = poi.name
+      .replace(/（公交站）|\(公交站\)/g, '')
       .replace(/(地铁站)?[A-Z0-9a-z]+$/g, '') 
       .replace(/(地铁站)?(东|南|西|北)?[0-9]*$/g, '')
       .replace(/(\d+号口|出入口|入口|出口|\(地铁站\))$/g, '')
@@ -296,20 +300,20 @@ function parsePoisToServices(pois, centerLngLat) {
       routes.forEach(r => {
         let cleanRoute = r.trim();
 
-        // 2. 状态过滤：忽略停运线路
+        // 状态过滤：忽略停运线路
         if (cleanRoute.includes('停运')) {
           return;
         }
 
         if (cleanRoute) {
-          // 提取基础线路名用于精确去重（例如从 "19号线(在建)" 中提取出 "19号线"）
+          // 提取基础线路名用于去重匹配
           const baseRouteName = cleanRoute.replace(/\(在建\)|（在建）/g, '').trim();
 
           rawList.push({
             mode: mode,
             stop: cleanStopName,
-            route: cleanRoute,       // 仍保留 "(在建)" 用于前端明细表格展示
-            baseRoute: baseRouteName, // 仅用于去重匹配
+            route: cleanRoute,       // 保留 "(在建)" 用于前端展示
+            baseRoute: baseRouteName, // 用于去重匹配
             distance: Math.round(dist),
             freq: DEFAULT_VPH[mode]
           });
@@ -318,7 +322,7 @@ function parsePoisToServices(pois, centerLngLat) {
     }
   });
 
-  // 3. 严格去重：按照 [模式 + 基础线路名] 去重，保留最近站点，同时保留 (在建) 标记
+  // 3. 严格去重：按照 [模式 + 基础线路名] 去重，保留最近站点
   const uniqueMap = new Map();
   rawList.forEach(item => {
     const key = `${item.mode}_${item.baseRoute}`;
