@@ -310,17 +310,17 @@ function parsePoisToServices(pois, centerLngLat) {
   });
 
   // 2. 严格去重：同一条线路（route）在同一主站点（stop）只保留步行距离最近的那一个出入口
+  // 严格去重：全局同一条线路（如8号线、1号线）只保留距离最近的那一个接入点
   const uniqueMap = new Map();
   rawList.forEach(item => {
-    // Key 仅按 [模式 + 主站点名 + 线路名] 去重
-    const key = `${item.mode}_${item.stop}_${item.route}`;
+    // 将 Key 修改为 [模式_线路]，确保同一种交通方式下的同一条线路全局只算一次
+    const key = `${item.mode}_${item.route}`;
     if (!uniqueMap.has(key) || item.distance < uniqueMap.get(key).distance) {
       uniqueMap.set(key, item);
     }
   });
 
   services = Array.from(uniqueMap.values());
-}
 function calculate(){
   const params = { speed: 80, reliability: { bus: 2.0, rail: 0.75 }, maxWalk: { bus: 7.5, rail: 12.0 } };
   const results = [];
