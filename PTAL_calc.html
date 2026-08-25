@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PTAL Auto-Calculator — 修正去重与分数段版</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+:root{
+  --ink:#0B1220;
+  --paper:#EEF1F6;
+  --panel:#FFFFFF;
+  --tfl-blue:#113B92;
+  --tfl-blue-dark:#0A2761;
+  --roundel-red:#DC241F;
+  --line-amber:#B87400;
+  --line-amber-bg:#FFF4E0;
+  --success-green:#00692A;
+  --grid:rgba(11,18,32,0.12);
+  --grid-soft:rgba(11,18,32,0.07);
+  --muted:#5B6472;
+  --radius:3px;
+  --font-display:'Space Grotesk', sans-serif;
+  --font-mono:'IBM Plex Mono', monospace;
+  --font-body:'Inter', sans-serif;
+}
+
+*{box-sizing:border-box;}
+body{
+  margin:0; background:var(--paper);
+  background-image: linear-gradient(var(--grid-soft) 1px, transparent 1px), linear-gradient(90deg, var(--grid-soft) 1px, transparent 1px);
+  background-size: 28px 28px; color:var(--ink); font-family:var(--font-body); line-height:1.45;
+}
+
+header.masthead{
+  background:var(--tfl-blue); background-image: linear-gradient(180deg, var(--tfl-blue) 0%, var(--tfl-blue-dark) 100%);
+  color:#fff; padding:22px clamp(16px,4vw,40px); display:flex; align-items:center; gap:18px; border-bottom:6px solid var(--roundel-red);
+}
+.mark{
+  width:46px;height:46px;flex:0 0 auto; border-radius:50%; border:4px solid #fff;
+  position:relative; display:flex;align-items:center;justify-content:center;
+}
+.mark::after{
+  content:""; position:absolute; left:-8px;right:-8px; top:50%; height:9px; transform:translateY(-50%); background:var(--roundel-red);
+}
+.mark span{ position:relative; z-index:2; font-family:var(--font-mono); font-weight:600; font-size:11px; background:var(--tfl-blue-dark); padding:0 3px; }
+.masthead h1{ font-family:var(--font-display); font-weight:700; font-size:clamp(20px,3vw,28px); margin:0; }
+.masthead p{ margin:2px 0 0; font-family:var(--font-mono); font-size:12.5px; color:#C9D4EE; }
+
+main{ max-width:1180px; margin:0 auto; padding:clamp(16px,3vw,32px); display:grid; gap:20px; }
+.panel{ background:var(--panel); border:1px solid var(--grid); border-radius:var(--radius); }
+.panel-head{
+  display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+  padding:14px 18px; border-bottom:1px solid var(--grid); background:linear-gradient(180deg,#FAFBFD,#F3F5F9);
+}
+.panel-head h2{ font-family:var(--font-display); font-size:14px; font-weight:700; margin:0; color:var(--tfl-blue-dark); }
+.panel-head .eyebrow{ font-family:var(--font-mono); font-size:11px; color:var(--muted); }
+.panel-body{ padding:18px; }
+
+.map-search-row{ display:flex; gap:10px; margin-bottom:12px; }
+.map-search-row input{ flex:1; font-family:var(--font-mono); font-size:14px; padding:10px 12px; border:1px solid var(--grid); border-radius:2px; }
+#map-container{ width:100%; height:300px; border:1px solid var(--grid); border-radius:2px; margin-bottom:14px; }
+
+.top-grid{ display:grid; grid-template-columns:1.3fr 1fr; gap:20px; }
+@media (max-width:820px){ .top-grid{ grid-template-columns:1fr; } }
+
+.service-list{ margin-top:14px; display:flex; flex-direction:column; gap:6px; max-height:230px; overflow-y:auto; }
+.chip{
+  display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:10px;
+  font-family:var(--font-mono); font-size:12px; background:#F6F7FA; border:1px solid var(--grid); border-radius:2px; padding:7px 10px;
+}
+.chip .mode-tag{ font-size:10px; font-weight:700; padding:2px 6px; border-radius:2px; color:#fff; text-transform:uppercase; }
+.chip .mode-tag.bus{ background:var(--roundel-red); }
+.chip .mode-tag.lu{ background:var(--tfl-blue); }
+.chip .detail{ color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chip .stat{ color:var(--ink); font-weight:600; }
+
+.btn{ font-family:var(--font-mono); font-size:12.5px; font-weight:600; text-transform:uppercase; border:none; border-radius:2px; padding:10px 16px; cursor:pointer; }
+.btn-primary{ background:var(--tfl-blue); color:#fff; }
+.btn-primary:hover{ background:var(--tfl-blue-dark); }
+.btn-ghost{ background:transparent; border:1px solid var(--grid); color:var(--ink); }
+
+.result-wrap{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:10px 0 4px; }
+.roundel{ width:168px; height:168px; position:relative; display:flex; align-items:center; justify-content:center; }
+.roundel-ring{ position:absolute; inset:0; border-radius:50%; border:9px solid var(--tfl-blue); transition:border-color .25s ease; }
+.roundel-bar{
+  position:absolute; left:-14px; right:-14px; top:50%; height:26px; transform:translateY(-50%);
+  background:var(--roundel-red); display:flex; align-items:center; justify-content:center;
+}
+.roundel-bar span{ font-family:var(--font-display); font-weight:700; font-size:13px; color:#fff; }
+.roundel-value{ font-family:var(--font-display); font-weight:700; font-size:30px; color:var(--tfl-blue-dark); z-index:2; background:#fff; border-radius:50%; }
+.result-caption{ text-align:center; }
+.result-caption .ai-figure{ font-family:var(--font-mono); font-size:12.5px; color:var(--muted); }
+.result-caption .band-range{ font-family:var(--font-mono); font-size:12px; color:var(--tfl-blue); margin-top:2px; font-weight:600; }
+.result-caption .band-desc{ margin-top:4px; font-family:var(--font-body); font-weight:600; font-size:15px; }
+
+.scale{ display:flex; border-radius:2px; overflow:hidden; border:1px solid var(--grid); margin-top:8px;}
+.scale-seg{ flex:1; padding:6px 2px; text-align:center; font-family:var(--font-mono); font-size:10px; font-weight:600; color:#fff; position:relative; }
+.scale-seg .range-text{ font-size:9px; font-weight:400; opacity:0.9; display:block; margin-top:1px; }
+.scale-seg.active{ transform:translateY(-4px); box-shadow:0 3px 8px rgba(0,0,0,0.25); z-index:2; }
+
+.table-scroll{ overflow-x:auto; }
+table.breakdown{ width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:12.5px; min-width:760px; }
+table.breakdown th{ text-align:right; padding:9px 10px; background:#F3F5F9; border-bottom:1px solid var(--grid); font-size:10.5px; color:var(--muted); }
+table.breakdown th:nth-child(1), table.breakdown th:nth-child(2), table.breakdown th:nth-child(3){ text-align:left; }
+table.breakdown td{ padding:8px 10px; border-bottom:1px solid var(--grid-soft); text-align:right; }
+table.breakdown td:nth-child(1), table.breakdown td:nth-child(2), table.breakdown td:nth-child(3){ text-align:left; }
+table.breakdown td.weight-1{ color:var(--success-green); font-weight:700; }
+
+footer{ max-width:1180px; margin:0 auto; padding:6px clamp(16px,3vw,32px) 40px; font-family:var(--font-mono); font-size:11px; color:var(--muted); }
+</style>
+
+<!-- 高德地图 Key 与安全密钥配置处 -->
+<script type="text/javascript">
+  window._AMapSecurityConfig = {
+    securityJsCode: 'd6687ec9416268834ced7b0e7fa47a14',
+  };
+</script>
+<script type="text/javascript" src="https://webapi.amap.com/maps?v=2.0&key=f5043e2c5d79dccdae5142dda8c85e08&plugin=AMap.AutoComplete,AMap.PlaceSearch"></script>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="mark"><span>PT</span></div>
+  <div>
+    <h1>PTAL Auto-Calculator</h1>
+    <p>包含出入口智能去重 & PTAL 完整分数段对照</p>
+  </div>
+</header>
+
+<main>
+  <div class="top-grid">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>1. 选择地名 / 目标位置 Location</h2>
+        <span class="eyebrow">STEP 1</span>
+      </div>
+      <div class="panel-body">
+        <div class="map-search-row">
+          <input id="map-input" type="text" placeholder="输入地名或选择下拉项 (例: 上海浦东机场 / 人民广场)">
+          <button class="btn btn-primary" id="search-btn" type="button">计算 PTAL</button>
+        </div>
+
+        <div id="map-container"></div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-family:var(--font-mono); font-size:12px; color:var(--muted);" id="search-status">提示：在输入框搜索地名或在地图上点击取点</span>
+          <button class="btn btn-ghost" id="clear-all" type="button">清空 CLEAR</button>
+        </div>
+
+        <div class="service-list" id="service-list"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>可达性指数 Access Index</h2>
+        <span class="eyebrow">RESULT</span>
+      </div>
+      <div class="panel-body result-wrap">
+        <div class="roundel">
+          <div class="roundel-ring" id="roundel-ring"></div>
+          <div class="roundel-bar"><span id="band-code">0</span></div>
+          <div class="roundel-value" id="ai-value">0.0</div>
+        </div>
+        <div class="result-caption">
+          <div class="ai-figure">ACCESS INDEX (AI) = <b id="ai-figure">0.00</b></div>
+          <div class="band-range" id="band-range">AI 范围: -</div>
+          <div class="band-desc" id="band-desc">请选择地点进行计算</div>
+        </div>
+      </div>
+      <div class="panel-body" style="padding-top:0;">
+        <div style="font-family:var(--font-mono); font-size:11px; color:var(--muted); margin-bottom:4px; text-align:center;">PTAL 等级分数段对照 (AI Score Range)</div>
+        <div class="scale" id="scale-legend"></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>周边接入点明细 (已自动合并同线站点)</h2>
+      <span class="eyebrow">STEP 2 · 公交(600m)及地铁(960m)线路接入分析</span>
+    </div>
+    <div class="table-scroll">
+      <table class="breakdown">
+        <thead>
+          <tr>
+            <th>模式</th><th>站点</th><th>线路</th>
+            <th>距离 m</th><th>默认班次 vph</th><th>步行 min</th>
+            <th>SWT min</th><th>TAT min</th><th>EDF</th><th>权重</th><th>AI 贡献</th>
+          </tr>
+        </thead>
+        <tbody id="breakdown-body">
+          <tr class="empty-row"><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">等待查询地名...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer>
+  标准规范：按照 TfL 算力标准，同一公交/轨道交通线路在同一站点（包含多个出入口）自动合并取最近步行距离。
+</footer>
+
+<script>
+// 标准 TfL PTAL 分数段对应表
+const PTAL_BANDS = [
+  {lo:0.00,  hi:0.00,     code:"0",  label:"无公交可达",   rangeStr:"0.00",        color:"#5B6472"},
+  {lo:0.01,  hi:2.50,     code:"1a", label:"非常差",       rangeStr:"0.01 - 2.50",  color:"#8B2E2E"},
+  {lo:2.51,  hi:5.00,     code:"1b", label:"非常差",       rangeStr:"2.51 - 5.00",  color:"#A5402C"},
+  {lo:5.01,  hi:10.00,    code:"2",  label:"差",           rangeStr:"5.01 - 10.00", color:"#B85E1F"},
+  {lo:10.01, hi:15.00,    code:"3",  label:"一般",         rangeStr:"10.01 - 15.00",color:"#B87400"},
+  {lo:15.01, hi:20.00,    code:"4",  label:"好",           rangeStr:"15.01 - 20.00",color:"#7E7A1E"},
+  {lo:20.01, hi:25.00,    code:"5",  label:"非常好",       rangeStr:"20.01 - 25.00",color:"#4C7A22"},
+  {lo:25.01, hi:40.00,    code:"6a", label:"优秀",         rangeStr:"25.01 - 40.00",color:"#1F7A3D"},
+  {lo:40.01, hi:Infinity, code:"6b", label:"优秀 · 最高", rangeStr:"> 40.00",      color:"#00692A"},
+];
+
+const MODE_CATEGORY = { bus:"bus", lu:"rail" };
+const MODE_NAMES = { bus:"BUS", lu:"METRO" };
+const DEFAULT_VPH = { lu: 15.0, bus: 6.0 };
+
+let services = [];
+let map, currentMarker;
+
+function initMap() {
+  map = new AMap.Map('map-container', {
+    zoom: 15,
+    center: [121.4737, 31.2304]
+  });
+
+  map.on('click', (e) => {
+    const lnglat = [e.lnglat.getLng(), e.lnglat.getLat()];
+    setLocationAndFetch(lnglat, "地图选中坐标");
+  });
+
+  const auto = new AMap.AutoComplete({ input: "map-input" });
+  auto.on("select", (e) => {
+    if (e.poi && e.poi.location) {
+      const lnglat = [e.poi.location.lng, e.poi.location.lat];
+      setLocationAndFetch(lnglat, e.poi.name);
+    }
+  });
+}
+
+function setLocationAndFetch(lnglat, locationName) {
+  if (currentMarker) map.remove(currentMarker);
+
+  currentMarker = new AMap.Marker({ position: lnglat, map: map, title: locationName });
+  map.setCenter(lnglat);
+
+  document.getElementById('search-status').textContent = `正在检索【${locationName}】周边公共交通...`;
+  services = [];
+
+  const placeSearch = new AMap.PlaceSearch({
+    type: '公交车站|地铁站',
+    radius: 960,
+    pageSize: 50
+  });
+
+  placeSearch.searchNearBy('', lnglat, 960, (status, result) => {
+    if (status === 'complete' && result.info === 'OK') {
+      parsePoisToServices(result.poiList.pois, lnglat);
+      document.getElementById('search-status').textContent = `分析完成：去重后共 ${services.length} 条独立线路服务`;
+      render();
+    } else {
+      document.getElementById('search-status').textContent = "周边未搜索到公交或地铁站点。";
+      render();
+    }
+  });
+}
+
+// 核心去重解析：同一线路在同一站点（出入口）去重，保留最近的那个
+function parsePoisToServices(pois, centerLngLat) {
+  const cLng = centerLngLat[0];
+  const cLat = centerLngLat[1];
+  const rawList = [];
+
+  pois.forEach(poi => {
+    const dist = AMap.GeometryUtil.distance([cLng, cLat], [poi.location.lng, poi.location.lat]);
+    const isMetro = poi.type.includes('地铁站') || poi.name.includes('地铁站');
+    const mode = isMetro ? 'lu' : 'bus';
+
+    // 剔除出入口后缀（如 "浦东1号2号航站楼地铁站4号口" -> "浦东1号2号航站楼地铁站"）
+    const cleanStopName = poi.name.replace(/(\d+号口|出入口|入口|出口)$/g, '');
+
+    if ((mode === 'bus' && dist <= 600) || (mode === 'lu' && dist <= 960)) {
+      const routes = poi.address ? poi.address.split(';') : [cleanStopName];
+      routes.forEach(r => {
+        let cleanRoute = r.trim();
+        if (cleanRoute) {
+          rawList.push({
+            mode: mode,
+            stop: cleanStopName,
+            route: cleanRoute,
+            distance: Math.round(dist),
+            freq: DEFAULT_VPH[mode]
+          });
+        }
+      });
+    }
+  });
+
+  // 使用 Map 按照 [模式 + 基础站点名 + 线路名] 合并，只保留最近距离的项
+  const uniqueMap = new Map();
+  rawList.forEach(item => {
+    const key = `${item.mode}_${item.stop}_${item.route}`;
+    if (!uniqueMap.has(key) || item.distance < uniqueMap.get(key).distance) {
+      uniqueMap.set(key, item);
+    }
+  });
+
+  services = Array.from(uniqueMap.values());
+}
+
+function calculate(){
+  const params = { speed: 80, reliability: { bus: 2.0, rail: 0.75 }, maxWalk: { bus: 7.5, rail: 12.0 } };
+  const results = [];
+
+  for(const svc of services){
+    const category = MODE_CATEGORY[svc.mode] || "rail";
+    const reliability = params.reliability[category];
+    const maxWalk = params.maxWalk[category];
+    const walkTime = svc.distance / params.speed;
+    const swt = (30 / svc.freq) + reliability;
+    const tat = walkTime + swt;
+    const edf = 30 / tat;
+
+    results.push({ svc, walkTime, swt, tat, edf, weight:0, aiContribution:0, excluded: walkTime > maxWalk });
+  }
+
+  const included = results.filter(r => !r.excluded);
+  const byMode = {};
+  for(const r of included){ (byMode[r.svc.mode] = byMode[r.svc.mode] || []).push(r); }
+  for(const mode in byMode){
+    const arr = byMode[mode].sort((a,b) => b.edf - a.edf);
+    arr.forEach((r,i) => {
+      r.weight = i === 0 ? 1.0 : 0.5;
+      r.aiContribution = r.edf * r.weight;
+    });
+  }
+
+  included.sort((a,b) => b.aiContribution - a.aiContribution);
+  const totalAI = included.reduce((sum,r) => sum + r.aiContribution, 0);
+  return {totalAI, included};
+}
+
+// 渲染分数段图例
+function renderScale(activeCode){
+  const wrap = document.getElementById('scale-legend');
+  wrap.innerHTML = "";
+  PTAL_BANDS.forEach(b => {
+    const seg = document.createElement('div');
+    seg.className = 'scale-seg' + (b.code === activeCode ? ' active' : '');
+    seg.style.background = b.color;
+    seg.innerHTML = `
+      <div>${b.code}</div>
+      <span class="range-text">${b.rangeStr}</span>
+    `;
+    wrap.appendChild(seg);
+  });
+}
+
+function renderServiceList(){
+  const wrap = document.getElementById('service-list');
+  wrap.innerHTML = "";
+  if(services.length === 0){
+    wrap.innerHTML = '<div style="font-family:var(--font-mono); font-size:12px; color:var(--muted); padding:6px 2px;">暂无服务</div>';
+    return;
+  }
+  services.slice(0, 10).forEach(svc => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = `
+      <span class="mode-tag ${svc.mode}">${MODE_NAMES[svc.mode]}</span>
+      <span class="detail">${svc.stop} · ${svc.route}</span>
+      <span class="stat">${svc.distance}m / ${svc.freq}vph</span>
+    `;
+    wrap.appendChild(chip);
+  });
+}
+
+function renderResult(calc){
+  const band = (ai => {
+    for(const b of PTAL_BANDS){ if(ai >= b.lo && ai <= b.hi) return b; }
+    return PTAL_BANDS[PTAL_BANDS.length-1];
+  })(calc.totalAI);
+
+  document.getElementById('ai-value').textContent = calc.totalAI >= 100 ? calc.totalAI.toFixed(0) : calc.totalAI.toFixed(1);
+  document.getElementById('ai-figure').textContent = calc.totalAI.toFixed(2);
+  document.getElementById('band-code').textContent = band.code;
+  document.getElementById('band-range').textContent = `AI 指数范围: ${band.rangeStr}`;
+  document.getElementById('band-desc').textContent = `PTAL 等级: ${band.code} (${band.label})`;
+  document.getElementById('roundel-ring').style.borderColor = band.color;
+  renderScale(band.code);
+}
+
+function renderTable(calc){
+  const body = document.getElementById('breakdown-body');
+  body.innerHTML = "";
+  if(calc.included.length === 0){
+    body.innerHTML = '<tr class="empty-row"><td colspan="11" style="text-align:center; padding:20px;">未检索到有效公共交通接入点</td></tr>';
+  } else {
+    calc.included.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${MODE_NAMES[r.svc.mode]}</td>
+        <td>${r.svc.stop}</td>
+        <td>${r.svc.route}</td>
+        <td>${r.svc.distance.toFixed(0)}</td>
+        <td>${r.svc.freq.toFixed(1)}</td>
+        <td>${r.walkTime.toFixed(2)}</td>
+        <td>${r.swt.toFixed(2)}</td>
+        <td>${r.tat.toFixed(2)}</td>
+        <td>${r.edf.toFixed(2)}</td>
+        <td class="${r.weight === 1 ? 'weight-1' : ''}">${r.weight.toFixed(1)}</td>
+        <td><strong>${r.aiContribution.toFixed(2)}</strong></td>
+      `;
+      body.appendChild(tr);
+    });
+  }
+}
+
+function render(){
+  renderServiceList();
+  const calc = calculate();
+  renderResult(calc);
+  renderTable(calc);
+}
+
+document.getElementById('clear-all').addEventListener('click', () => {
+  services = [];
+  if(currentMarker) map.remove(currentMarker);
+  render();
+});
+
+window.onload = initMap;
+</script>
+</body>
+</html>
