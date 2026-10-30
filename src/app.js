@@ -8,7 +8,7 @@
   const store=new PTALStore.LocalStore(storage);
   const API_CONFIG_KEY='ptal-map-config-v1',API_RESUME_KEY='ptal-api-resume-v1';
   let mapConfig={};
-  try{const saved=JSON.parse(storage.getItem(API_CONFIG_KEY)||'null');if(saved&&typeof saved.key==='string'&&saved.key.trim()&&typeof saved.securityJsCode==='string'&&saved.securityJsCode.trim())mapConfig={key:saved.key.trim(),securityJsCode:saved.securityJsCode.trim()};}catch{}
+  try{const saved=JSON.parse(storage.getItem(API_CONFIG_KEY)||'null');if(saved&&typeof saved==='object'){const key=typeof saved.key==='string'?saved.key.trim():'',securityJsCode=typeof saved.securityJsCode==='string'?saved.securityJsCode.trim():'';if(key||securityJsCode)mapConfig={key,securityJsCode};}}catch{}
   globalThis.PTAL_MAP_CONFIG=mapConfig;
   const text=(id,value)=>{$(id).textContent=value;};
   const element=(tag,value,className)=>{const el=document.createElement(tag);if(value!==undefined)el.textContent=value;if(className)el.className=className;return el;};
@@ -17,11 +17,11 @@
   function apiStatus(message,error=false){text('api-settings-status',message);$('api-settings-status').classList.toggle('error',error);}
   function writeApiSettings(){
     $('api-key').value=mapConfig.key||'';$('api-security-code').value=mapConfig.securityJsCode||'';
-    apiStatus(mapConfig.key&&mapConfig.securityJsCode?'默认使用站点地图配置；站点尚未配置时使用本浏览器保存的配置。':'默认使用站点地图配置，无需填写；仅管理员需要在 Cloudflare 设置。');
+    apiStatus(mapConfig.key&&mapConfig.securityJsCode?'地图、地点及步行查询优先使用本浏览器的个人配置；失败时不自动切换公共额度。':mapConfig.key||mapConfig.securityJsCode?'个人配置未填写完整，请补齐两项或清空后使用 Cloudflare。':'当前使用 Cloudflare 公共配置；填写个人 Key 和安全密钥后可优先使用。');
   }
   function showApiSettings(open){$('api-settings').hidden=!open;$('api-settings-toggle').setAttribute('aria-expanded',String(open));}
   function applyApiSettings(config){
-    const reload=Boolean(adapterPending||globalThis.AMap||document.querySelector('script[data-ptal-sdk]'));
+    const reload=Boolean(adapter||adapterPending||globalThis.AMap||document.querySelector('script[data-ptal-sdk]'));
     try{
       // 已加载的高德 SDK 需要整页重载才能可靠切换凭据，先暂存分析。
       if(reload){cancel();hideChoices();sessionStorage.setItem(API_RESUME_KEY,JSON.stringify({version:1,params:state.params,services:state.services,location:state.location,assessed:state.assessed,warnings:state.warnings,scope:state.scope,query:$('map-input').value}));}
@@ -32,7 +32,7 @@
     }
     mapConfig=config;globalThis.PTAL_MAP_CONFIG=config;writeApiSettings();
     if(reload){apiStatus('已保存，正在刷新并恢复当前分析…');location.reload();return;}
-    apiStatus('已保存到当前浏览器，下次查询生效；尚未验证密钥有效性。');
+    apiStatus(config.key?'个人配置已保存，下次地图和查询优先使用；尚未验证密钥有效性。':'个人配置已清空，下次地图和查询使用 Cloudflare。');
   }
   function setBusy(value){
     state.busy=value;$('cancel-btn').hidden=!value;
@@ -162,7 +162,7 @@
   }
   async function ensureAdapter(){
     if(adapter)return adapter;
-    if(!adapterPending)adapterPending=PTALMap.Adapter.connect(mapConfig,store).then(value=>{adapter=value;text('map-state','地点联想已启用 · 底图按需加载');return value;}).finally(()=>{adapterPending=null;});
+    if(!adapterPending)adapterPending=PTALMap.Adapter.connect(mapConfig,store).then(value=>{adapter=value;text('map-state',`${value.source==='personal'?'个人 Key':'Cloudflare'} · 底图按需加载`);return value;}).finally(()=>{adapterPending=null;});
     return adapterPending;
   }
   function stopSuggestions(){clearTimeout(suggestTimer);suggestTimer=null;suggestGeneration++;suggestController?.abort();suggestController=null;}
@@ -275,8 +275,8 @@
   $('api-settings-form').addEventListener('submit',event=>{
     event.preventDefault();if(!$('api-settings-form').reportValidity())return;
     const config={key:$('api-key').value.trim(),securityJsCode:$('api-security-code').value.trim()};
-    if(!config.key||!config.securityJsCode||/\s/.test(config.key+config.securityJsCode)){apiStatus('Key 和安全密钥不能为空或包含空白字符，请核对粘贴内容。',true);return;}
-    applyApiSettings(config);
+    if(Boolean(config.key)!==Boolean(config.securityJsCode)||/\s/.test(config.key+config.securityJsCode)){apiStatus('Key 和安全密钥需同时填写，或同时清空以使用 Cloudflare；不能包含空白字符。',true);return;}
+    applyApiSettings(config.key?config:{});
   });
   async function enableMap(){
     const btn=$('enable-map');btn.disabled=true;text('map-state','正在启用地图');

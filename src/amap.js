@@ -31,14 +31,16 @@
       }); pending?.catch(error=>finish(error)); } catch { finish(new Error('高德插件调用失败，请检查网络或 Key 权限')); }
     });
   }
-  async function load(config) {
-    if (root.AMap?.Map) return root.AMap;
-    let selected=config;
+  function personal(config){
+    const key=typeof config?.key==='string'?config.key.trim():'',securityJsCode=typeof config?.securityJsCode==='string'?config.securityJsCode.trim():'';
+    if(Boolean(key)!==Boolean(securityJsCode))throw new Error('个人 Key 和安全密钥需同时填写，或同时清空后使用 Cloudflare');
+    return key?{key,securityJsCode}:null;
+  }
+  async function load(config,business=false) {
+    if (root.AMap?.Map&&(!business||(root.AMap.AutoComplete&&root.AMap.PlaceSearch&&root.AMap.Walking))) return root.AMap;
+    let selected=personal(config);
     const base=root.PTAL_DEPLOYMENT?.workerUrl;
-    if(base){
-      try{selected=await root.PTALWorker.services(base).mapConfig();}
-      catch(error){if(error.code!=='MAP_NOT_CONFIGURED'||!config?.key||!config?.securityJsCode)throw error;}
-    }
+    if(!selected&&base)selected=await root.PTALWorker.services(base).mapConfig();
     if(!selected?.key)throw new Error('站点地图尚未配置，请管理员添加地图配置');
     if(selected.serviceHost){
       const host=new URL(selected.serviceHost);
@@ -55,9 +57,11 @@
       root.__ptalMapReady=()=>finish();
       const url=new URL('https://webapi.amap.com/maps');
       url.search=new URLSearchParams({v:'2.0',key:selected.key,callback:'__ptalMapReady'}).toString();
+      if(business)url.searchParams.set('plugin','AMap.AutoComplete,AMap.PlaceSearch,AMap.Walking');
       script.dataset.ptalSdk='';script.src=url.toString();script.onerror=()=>finish(new Error('地图脚本加载失败，请检查网络后刷新'));document.head.append(script);
     });
     if (!root.AMap?.Map) throw new Error('地图搜索插件未就绪，请刷新后重试');
+    if(business&&(!root.AMap.AutoComplete||!root.AMap.PlaceSearch||!root.AMap.Walking))throw new Error('个人 Key 的搜索与步行插件未就绪，请核对配置后重试');
     return root.AMap;
   }
   class Adapter {
@@ -67,10 +71,15 @@
       await adapter.attachMap(onSelect);return adapter;
     }
     static async connect(config,store){
+      const own=personal(config);
+      if(own){
+        const adapter=new Adapter(await load(own,true),null,store);
+        adapter.config=own;adapter.pageSize=50;adapter.source='personal';return adapter;
+      }
       const base=root.PTAL_DEPLOYMENT?.workerUrl;
       if(!base)throw new Error('尚未配置 Worker 地址，请设置 src/deployment.js');
       const adapter=new Adapter(root.PTALWorker.services(base,store),null,store);
-      adapter.config=config;adapter.pageSize=25;return adapter;
+      adapter.config={};adapter.pageSize=25;adapter.source='cloudflare';return adapter;
     }
     async attachMap(onSelect){
       if(this.map)return;

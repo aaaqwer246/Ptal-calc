@@ -142,3 +142,23 @@ test('地图配置拒绝误用Web服务Key，上游意外回显的密钥不会�
     assert.equal(response.status,502);assert.doesNotMatch(await response.text(),new RegExp(env.AMAP_JS_SECRET));
   }finally{global.fetch=old;}
 });
+test('个人配置优先用于地图和全部业务，Key失败或填写不完整均不转用公共额度',async()=>{
+  global.PTAL=require('../src/model.js');require('../src/worker-client.js');require('../src/amap.js');
+  const {LocalStore}=require('../src/cache.js'),saved={fetch:global.fetch,AMap:global.AMap,document:global.document,config:global.PTAL_DEPLOYMENT,security:global._AMapSecurityConfig};
+  const calls={worker:0,tips:0,detail:0,search:0,nearby:0,walk:0};let sdk;
+  const poi={id:'B1',name:'测试站(公交站)',address:'1路',type:'公交车站',location:[121,31]};
+  class PlaceSearch{setPageIndex(){}search(text,cb){calls.search++;cb('complete',{poiList:{pois:[poi]}});}getDetails(id,cb){calls.detail++;cb('complete',{poiList:{pois:[poi]}});}searchNearBy(text,coords,radius,cb){calls.nearby++;cb('complete',{poiList:{count:1,pois:[poi]}});}}
+  class Walking{search(o,d,cb){calls.walk++;cb('complete',{routes:[{distance:300,steps:[{path:[o,d]}]}]});}}
+  class AutoComplete{search(text,cb){calls.tips++;cb('complete',{tips:[{...poi,name:text}]});}}
+  try{
+    global.AMap=undefined;global.PTAL_DEPLOYMENT={workerUrl:'https://worker.test'};global.fetch=async()=>{calls.worker++;throw Error('不应调用公共Worker');};
+    global.document={getElementById:()=>({replaceChildren(){}}),createElement:()=>({dataset:{}}),head:{append(script){sdk=new URL(script.src);global.AMap={Map:class{on(){}},PlaceSearch,Walking,AutoComplete};global.__ptalMapReady();}}};
+    const adapter=await PTALMap.Adapter.connect({key:'own-key',securityJsCode:'own-code'},new LocalStore()),signal=new AbortController().signal;
+    assert.equal(adapter.source,'personal');assert.equal(adapter.pageSize,50);assert.equal(sdk.searchParams.get('key'),'own-key');assert.match(sdk.searchParams.get('plugin'),/AMap.Walking/);assert.deepEqual(global._AMapSecurityConfig,{securityJsCode:'own-code'});
+    await adapter.suggest('公园',signal);await adapter.resolveTip({id:'B1',name:'站'},signal);await adapter.search('广场',signal);await adapter.nearby([121,31],PTAL.DEFAULTS,signal,()=>{});await adapter.walking([121,31],[121.1,31.1],signal);await adapter.attachMap(()=>{});
+    assert.deepEqual(calls,{worker:0,tips:1,detail:1,search:1,nearby:2,walk:1});
+    adapter.A.AutoComplete=class{search(text,cb){cb('error','INVALID_USER_KEY');}};
+    await assert.rejects(adapter.suggest('错误配置',signal),/Key 无效/);assert.equal(calls.worker,0);
+    await assert.rejects(PTALMap.Adapter.connect({key:'only-key'},new LocalStore()),/同时填写/);assert.equal(calls.worker,0);
+  }finally{global.fetch=saved.fetch;global.AMap=saved.AMap;global.document=saved.document;global.PTAL_DEPLOYMENT=saved.config;global._AMapSecurityConfig=saved.security;}
+});

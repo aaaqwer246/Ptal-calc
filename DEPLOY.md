@@ -58,17 +58,17 @@ CORS 只限制浏览器，不是身份验证；非浏览器可伪造 Origin。�
 
 双击 `启动本地计算器.cmd`，或运行 `python serve.py`，打开 `http://127.0.0.1:8765/`。需要 Python 3；本机已安装。服务只监听本机，只提供前端文件，不保存密钥或代理业务请求。关闭启动窗口即可停止。
 
-Worker 的 `ALLOWED_ORIGINS` 应为 `https://aaaqwer246.github.io,https://ptal-calc.zhouguillaume111750.workers.dev,http://127.0.0.1:8765,http://localhost:8765`，仓库配置已包含这些来源，重新部署后生效。也可在 Cloudflare 控制台修改同名普通变量并部署；保留 `AMAP_KEY` Secret。不要允许 `null` 来源或 `*`。本地使用与线上共用高德配额及预算。
+Worker 的 `ALLOWED_ORIGINS` 应为 `https://aaaqwer246.github.io,https://ptal-calc.zhouguillaume111750.workers.dev,http://127.0.0.1:8765,http://localhost:8765`，仓库配置已包含这些来源，重新部署后生效。也可在 Cloudflare 控制台修改同名普通变量并部署；保留 `AMAP_KEY` Secret。不要允许 `null` 来源或 `*`。使用 Cloudflare 时，本地与线上共用公共高德配额及预算；填写个人配置时使用对应个人 Key 的额度。
 
-本地和网站默认使用同一份站点地图配置，均无需输入个人 Key。地图配置只在启用地图时读取；`/api/map-config` 只返回 JS Key 和安全代理地址，不返回 jscode。`/_AMapService/v4/map/init` 与 `/_AMapService/v4/map/styles` 是固定目标代理，不接受外部 URL 或客户端 jscode；地图代理也受 IP 限流和独立全站预算保护，不缓存高德响应。JSONP 请求没有 Origin 时核对 Referer 的来源，仍不能视为身份认证。
+个人 Key 和安全密钥优先用于全部地图及业务查询；通过高德 JS API 的 AutoComplete、PlaceSearch 和 Walking 插件调用，不向公共 Worker 发送个人凭据。清空两项并保存后，本地和网站使用 Cloudflare 查询与站点地图配置。地图配置只在启用地图时读取；`/api/map-config` 只返回 JS Key 和安全代理地址，不返回 jscode。`/_AMapService/v4/map/init` 与 `/_AMapService/v4/map/styles` 是固定目标代理，不接受外部 URL 或客户端 jscode；地图代理也受 IP 限流和独立全站预算保护，不缓存高德响应。JSONP 请求没有 Origin 时核对 Referer 的来源，仍不能视为身份认证。
 
-缺少站点地图配置时明确提示管理员添加 Secret；为兼容此前保存的个人配置，此时仍可用网页原有设置作为备用。正常配置站点地图后优先采用站点配置，不采用或覆盖访问者保存的个人 Key。
+个人配置一旦填写就优先使用，失败时直接提示，不自动切换公共额度；只填 Key 或 jscode 会提示同时填写或同时清空。更换或清空配置会重载已初始化的查询适配器并恢复当前分析，避免旧 SDK 或旧 Worker 继续处理新请求。Cloudflare 模式缺少地图配置时提示管理员添加 Secret。
 
 ## 5. 验收
 
 运行 `node --test tests/*.test.cjs`。本地测试覆盖计算模型、完整分页、取消、Worker 跨域与参数拒绝、限流、全站预算、配额熔断、异常响应及前后端数据转换，全部使用模拟数据。
 
-部署后在网站输入一个地点并选择入口，验证公交及地铁候选、实际步行距离、路径展示、取消、强制刷新、手动修改和导出。开发者工具中业务请求应只到 Worker，只有地图 SDK 请求使用 Web端 JS Key；任何前端文件、浏览器存储及请求中都不应出现 Web 服务 Key。确认没有直接调用 restapi.amap.com。地图启用后应从 Worker 读取站点配置；浏览器不应出现 `AMAP_JS_SECRET`。缺少地图 Secret 不影响站点及步行业务。
+部署后在网站输入一个地点并选择入口，验证公交及地铁候选、实际步行距离、路径展示、取消、强制刷新、手动修改和导出。Cloudflare 模式下，开发者工具中业务请求应只到 Worker；个人模式下，所有业务使用个人 JS API，不应出现公共 Worker 请求。任何前端文件、浏览器存储及请求中都不应出现 Web 服务 Key。Cloudflare 模式确认没有由前端直接调用 restapi.amap.com。Cloudflare 模式的地图启用后应从 Worker 读取站点配置；浏览器不应出现服务器的 `AMAP_JS_SECRET`。缺少地图 Secret 不影响站点及步行业务。
 
 直接请求 Worker 但不带 Origin 或带非白名单 Origin 应返回403；非法坐标、未知参数及客户端 Key 返回400。限流与预算返回429；上游异常返回502、超时504、未配置503。不要用真实 Key 故意耗尽配额，配额异常通过自动测试模拟。
 

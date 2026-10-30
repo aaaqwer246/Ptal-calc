@@ -74,6 +74,8 @@ async function mockAMap(){
     await page.waitForFunction(()=>document.getElementById('search-status').textContent.includes('已导入'));
     assert.equal(await page.evaluate(()=>window.xss),undefined);assert.equal(await page.locator('#breakdown-body img').count(),0);
     await page.locator('#import-file').setInputFiles({name:'bad.json',mimeType:'application/json',buffer:Buffer.from('{bad')});await page.waitForFunction(()=>document.getElementById('search-status').textContent.includes('导入失败'));assert.equal(await page.locator('#breakdown-body tr').count(),1);
+    await page.locator('#api-settings-toggle').click();await page.locator('#api-key').fill('');await page.locator('#api-security-code').fill('');await page.getByRole('button',{name:'保存并应用',exact:true}).click();
+    assert.equal(await page.evaluate(()=>PTAL_MAP_CONFIG.key),undefined,'清空个人配置后使用Cloudflare');
     await page.locator('#clear-all').click();await page.evaluate(mockAMap);
     const input=page.locator('#map-input');
     await input.fill('世');await page.waitForTimeout(80);await input.fill('世纪');await page.waitForTimeout(80);await input.fill('世纪公园');
