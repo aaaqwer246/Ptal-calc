@@ -1,10 +1,15 @@
 (function(root){
   'use strict';
+  function displayError(error){
+    const messages={MAP_NOT_CONFIGURED:'默认地图暂不可用，可稍后重试或填写个人配置。',MAP_KEY_PLATFORM:'默认地图暂不可用，请联系管理员。',NOT_CONFIGURED:'默认查询服务暂不可用，请稍后重试。',ORIGIN_DENIED:'当前页面无法使用默认服务，请从首页或本地启动入口重新打开。'};
+    const message=messages[error?.code]||error?.message||'查询服务暂不可用，请稍后重试';
+    return /Cloudflare|Worker|AMAP_[A-Z_]+|wrangler|serviceHost|src\//i.test(message)?'查询服务暂不可用，请稍后重试':message;
+  }
   function services(base,store){
     if(root.location?.protocol==='file:')throw new Error('本地联网查询请使用「启动本地计算器.cmd」打开，直接双击网页仅支持手动计算');
     const blocked=new WeakMap();
     const url=new URL(base);
-    if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)throw new Error('请配置有效的 HTTPS Worker 地址');
+    if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)throw new Error('默认查询服务暂不可用，请稍后重试');
     async function query(action,params,signal){
       if(signal?.aborted)throw new DOMException('查询已取消','AbortError');
       if(signal&&blocked.has(signal))throw blocked.get(signal);
@@ -18,13 +23,13 @@
         const response=await fetch(target,{signal:controller.signal,cache:'no-store',credentials:'omit',redirect:'error'});
         const data=await response.json();
         if(!response.ok||data.error){
-          const error=new Error(data.error?.message||'Worker 接口异常');
+          const error=new Error(displayError(data.error));
           error.code=data.error?.code;
           if(signal&&[429,503].includes(response.status))blocked.set(signal,error);
           throw error;
         }
         return data;
-      }catch(error){if(timedOut)throw new Error('Worker 请求超时，请稍后重试');if(error.name==='TypeError')throw new Error('无法连接 Worker，请检查地址、网络与允许域名配置');throw error;}
+      }catch(error){if(timedOut)throw new Error('查询超时，请稍后重试');if(error.name==='TypeError')throw new Error('暂时无法连接查询服务，请检查网络或稍后重试');throw error;}
       finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
     }
     const point=p=>typeof p.location==='string'?{...p,location:p.location.split(',').map(Number)}:p;

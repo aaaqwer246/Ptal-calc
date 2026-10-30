@@ -8,15 +8,15 @@
 <main>
 <div class="workspace">
 <section class="panel map-panel" aria-labelledby="location-heading">
-<div class="panel-head"><h2 id="location-heading"><span class="step">01</span> 选择分析位置</h2><div class="actions"><button id="api-settings-toggle" class="btn" type="button" aria-expanded="false" aria-controls="api-settings">高德 API 设置</button><span id="map-state" class="badge">按需启用 · 省额度</span></div></div>
+<div class="panel-head"><h2 id="location-heading"><span class="step">01</span> 选择分析位置</h2><div class="actions"><button id="api-settings-toggle" class="btn" type="button" aria-expanded="false" aria-controls="api-settings">个人设置</button><span id="map-state" class="badge">按需启用 · 省额度</span></div></div>
 <div class="panel-body">
 <div id="api-settings" class="api-settings" hidden>
 <form id="api-settings-form" autocomplete="off">
-<p class="hint">填写个人 Web端（JS API）Key 和配套安全密钥后，地图、地点及步行查询都优先使用它。两项清空并保存则使用 Cloudflare 公共配置；不要填写 Web 服务 Key。</p>
-<div class="api-fields"><label for="api-key">Web端 Key<input id="api-key" type="password" maxlength="200" autocomplete="off" spellcheck="false"></label><label for="api-security-code">安全密钥（jscode）<input id="api-security-code" type="password" maxlength="200" autocomplete="off" spellcheck="false"></label></div>
+<p class="hint">个人配置优先用于地图和查询；两项留空则使用默认服务。</p>
+<div class="api-fields"><label for="api-key">高德 Key（Web端）<input id="api-key" type="password" maxlength="200" autocomplete="off" spellcheck="false"></label><label for="api-security-code">安全密钥<input id="api-security-code" type="password" maxlength="200" autocomplete="off" spellcheck="false"></label></div>
 <div class="actions api-actions"><button class="btn primary" type="submit">保存并应用</button><label class="hint"><input id="api-show-secrets" type="checkbox"> 显示密钥</label></div>
 <p id="api-settings-status" class="hint" role="status" aria-live="polite"></p>
-<p class="hint">仅保存在当前浏览器，不写入方案。地图已加载时会自动刷新并保留当前分析；保存不会验证密钥或调用高德接口。</p>
+<p class="hint">配置保存在当前浏览器，关闭后仍保留。更改后会刷新并恢复当前分析。</p>
 </form></div>
 <form id="search-form" class="search-row"><label class="sr-only" for="map-input">地名、具体门或高德坐标</label><input id="map-input" placeholder="输入地名、某某门 / 出入口，自动更新候选" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="place-choices" required maxlength="200"><button class="btn primary" id="search-btn">搜索分析</button><button class="btn" id="cancel-btn" type="button" hidden>取消</button></form>
 <div id="place-choices" class="place-choices" role="listbox" hidden aria-label="请选择目标地点"></div><p id="place-status" class="hint" role="status" aria-live="polite"></p>
@@ -24,7 +24,7 @@
 <div class="map-bottom"><span id="location-label">尚未选择位置</span><button class="text-btn" id="clear-all" type="button">清空分析</button></div>
 <p id="search-status" class="status" role="status" aria-live="polite">输入停顿400毫秒后更新地点候选；支持具体门和出入口。选中地点后开始分析，地图点击只选点。</p>
 <p id="candidate-summary" class="hint" aria-live="polite">尚未检索候选站点</p>
-<p id="quota-status" class="hint"></p><div class="actions"><label class="hint"><input id="force-refresh" type="checkbox"> 强制刷新站点和路线（重新调用 API）</label><button id="clear-cache" type="button" class="text-btn">清除路线与站点缓存</button></div>
+<p id="quota-status" class="hint"></p><div class="actions"><label class="hint"><input id="force-refresh" type="checkbox"> 重新查询站点和路线</label><button id="clear-cache" type="button" class="text-btn">清除路线与站点缓存</button></div>
 <p class="hint">距离来自高德步行规划；圆形范围仅用于检索候选站点。点击明细中的「路径」可查看实际步行路线。</p></div></section>
 <section class="panel result-panel" aria-labelledby="result-heading">
 <div class="panel-head"><h2 id="result-heading"><span class="step">02</span> 可达性分析</h2><span id="result-state" class="badge">待分析</span></div>

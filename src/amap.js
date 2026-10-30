@@ -25,7 +25,7 @@
         else {
           const info=typeof result==='string'?result:result?.info;
           const code=/^[A-Z0-9_]{2,80}$/.test(info||'')?`（${info}）`:'';
-          const detail={INVALID_USER_DOMAIN:'当前页面域名不在高德 Web端 Key 白名单中，请在高德控制台调整域名配置后重试',INVALID_USER_KEY:'高德 Key 无效，请在「高德 API 设置」中核对',USERKEY_PLAT_NOMATCH:'Key 平台类型不匹配，请使用 Web端 Key',INVALID_USER_SCODE:'高德安全密钥校验失败，请在「高德 API 设置」中核对配套安全密钥'}[info];
+          const detail={INVALID_USER_DOMAIN:'当前页面域名不在高德 Web端 Key 白名单中，请在高德控制台调整域名配置后重试',INVALID_USER_KEY:'高德 Key 无效，请在「个人设置」中核对',USERKEY_PLAT_NOMATCH:'Key 平台类型不匹配，请使用 Web端 Key',INVALID_USER_SCODE:'高德安全密钥校验失败，请在「个人设置」中核对配套安全密钥'}[info];
           finish(new Error(detail?`${detail}${code}`:`高德接口请求失败${code}`));
         }
       }); pending?.catch(error=>finish(error)); } catch { finish(new Error('高德插件调用失败，请检查网络或 Key 权限')); }
@@ -33,7 +33,7 @@
   }
   function personal(config){
     const key=typeof config?.key==='string'?config.key.trim():'',securityJsCode=typeof config?.securityJsCode==='string'?config.securityJsCode.trim():'';
-    if(Boolean(key)!==Boolean(securityJsCode))throw new Error('个人 Key 和安全密钥需同时填写，或同时清空后使用 Cloudflare');
+    if(Boolean(key)!==Boolean(securityJsCode))throw new Error('个人 Key 和安全密钥需同时填写，或同时清空后使用默认服务');
     return key?{key,securityJsCode}:null;
   }
   async function load(config,business=false) {
@@ -41,10 +41,10 @@
     let selected=personal(config);
     const base=root.PTAL_DEPLOYMENT?.workerUrl;
     if(!selected&&base)selected=await root.PTALWorker.services(base).mapConfig();
-    if(!selected?.key)throw new Error('站点地图尚未配置，请管理员添加地图配置');
+    if(!selected?.key)throw new Error('默认地图暂不可用，可稍后重试或填写个人配置');
     if(selected.serviceHost){
       const host=new URL(selected.serviceHost);
-      if(host.origin!==new URL(base).origin||host.pathname!=='/_AMapService'||host.search||host.hash||host.username||host.password)throw new Error('地图安全代理地址无效');
+      if(host.origin!==new URL(base).origin||host.pathname!=='/_AMapService'||host.search||host.hash||host.username||host.password)throw new Error('地图服务暂不可用，请稍后重试');
       root._AMapSecurityConfig={serviceHost:host.href};
     }else{
       if(!selected.securityJsCode)throw new Error('地图安全配置不完整');
@@ -77,7 +77,7 @@
         adapter.config=own;adapter.pageSize=50;adapter.source='personal';return adapter;
       }
       const base=root.PTAL_DEPLOYMENT?.workerUrl;
-      if(!base)throw new Error('尚未配置 Worker 地址，请设置 src/deployment.js');
+      if(!base)throw new Error('默认查询服务暂不可用，可稍后重试或填写个人配置');
       const adapter=new Adapter(root.PTALWorker.services(base,store),null,store);
       adapter.config={};adapter.pageSize=25;adapter.source='cloudflare';return adapter;
     }

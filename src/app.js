@@ -13,11 +13,11 @@
   const text=(id,value)=>{$(id).textContent=value;};
   const element=(tag,value,className)=>{const el=document.createElement(tag);if(value!==undefined)el.textContent=value;if(className)el.className=className;return el;};
   function status(message,error=false){text('search-status',message);$('search-status').classList.toggle('error',error);quota();}
-  function quota(){const c=(adapter?.store||store).counts();text('quota-status',`本机业务 API 计数：今日 ${c.daily} 次 · 本月 ${c.monthly} 次。${store.available?'':'当前仅使用会话缓存，关闭页面后不能保留。'}`);}
+  function quota(){const c=(adapter?.store||store).counts();text('quota-status',`本机查询统计：今日 ${c.daily} 次 · 本月 ${c.monthly} 次。${store.available?'':'查询记录仅保留到关闭页面。'}`);}
   function apiStatus(message,error=false){text('api-settings-status',message);$('api-settings-status').classList.toggle('error',error);}
   function writeApiSettings(){
     $('api-key').value=mapConfig.key||'';$('api-security-code').value=mapConfig.securityJsCode||'';
-    apiStatus(mapConfig.key&&mapConfig.securityJsCode?'地图、地点及步行查询优先使用本浏览器的个人配置；失败时不自动切换公共额度。':mapConfig.key||mapConfig.securityJsCode?'个人配置未填写完整，请补齐两项或清空后使用 Cloudflare。':'当前使用 Cloudflare 公共配置；填写个人 Key 和安全密钥后可优先使用。');
+    apiStatus(mapConfig.key&&mapConfig.securityJsCode?'已使用个人配置；留空可恢复默认服务。':mapConfig.key||mapConfig.securityJsCode?'请补齐个人配置，或清空两项使用默认服务。':'当前使用默认服务，也可填写个人配置。');
   }
   function showApiSettings(open){$('api-settings').hidden=!open;$('api-settings-toggle').setAttribute('aria-expanded',String(open));}
   function applyApiSettings(config){
@@ -32,7 +32,7 @@
     }
     mapConfig=config;globalThis.PTAL_MAP_CONFIG=config;writeApiSettings();
     if(reload){apiStatus('已保存，正在刷新并恢复当前分析…');location.reload();return;}
-    apiStatus(config.key?'个人配置已保存，下次地图和查询优先使用；尚未验证密钥有效性。':'个人配置已清空，下次地图和查询使用 Cloudflare。');
+    apiStatus(config.key?'个人配置已保存，下次地图和查询优先使用。':'已恢复默认服务。');
   }
   function setBusy(value){
     state.busy=value;$('cancel-btn').hidden=!value;
@@ -61,7 +61,7 @@
   function writeSettings(){for(const [key,value]of Object.entries(state.params))$('settings-form').elements.namedItem(key).value=value;}
   function scopeNote(){
     const stale=scopeStale();
-    text('settings-note',stale?'步行范围已扩大，当前候选站点尚未补充，请重新点击「搜索分析」。':'参数修改后立即重算，不调用 API；扩大范围后需重新搜索，以补充范围内站点。');
+    text('settings-note',stale?'步行范围已扩大，当前候选站点尚未补充，请重新点击「搜索分析」。':'参数修改后立即重算，不重新查询；扩大范围后需重新搜索，以补充范围内站点。');
   }
   function render(){
     lastCalc=M.calculate(state.services,state.params);const calc=lastCalc,b=calc.band;
@@ -75,7 +75,7 @@
     const notes=[];
     if(scopeStale())notes.push('步行范围已扩大，候选站点需重新检索，当前结果可能低估。');
     if(state.services.some(s=>s.freqSource==='default'))notes.push('使用默认班次（公交4 / 地铁12辆每小时），需按统一时段校核。');
-    if(state.services.some(s=>s.distanceSource==='amap-walking'))notes.push('距离取自高德步行路线（缓存有效期7天）；可勾选强制刷新核实当前路径。');
+    if(state.services.some(s=>s.distanceSource==='amap-walking'))notes.push('距离取自高德步行路线；可重新查询以核实当前路径。');
     if(state.services.some(s=>s.distanceSource==='manual'))notes.push('含手工录入步行距离。');
     notes.push(...state.warnings);
     text('quality-note',notes.join(' ')||'请使用实际步行距离及目标时段单向班次。未分析时不显示零等级。');
@@ -162,7 +162,7 @@
   }
   async function ensureAdapter(){
     if(adapter)return adapter;
-    if(!adapterPending)adapterPending=PTALMap.Adapter.connect(mapConfig,store).then(value=>{adapter=value;text('map-state',`${value.source==='personal'?'个人 Key':'Cloudflare'} · 底图按需加载`);return value;}).finally(()=>{adapterPending=null;});
+    if(!adapterPending)adapterPending=PTALMap.Adapter.connect(mapConfig,store).then(value=>{adapter=value;text('map-state',`${value.source==='personal'?'个人配置':'默认服务'} · 底图按需加载`);return value;}).finally(()=>{adapterPending=null;});
     return adapterPending;
   }
   function stopSuggestions(){clearTimeout(suggestTimer);suggestTimer=null;suggestGeneration++;suggestController?.abort();suggestController=null;}
@@ -232,13 +232,13 @@
   });
   $('clear-all').addEventListener('click',()=>{cancel();Object.assign(state,{services:[],location:null,assessed:false,warnings:[],session:null,scope:null});selectedInput='';$('map-input').value='';hideChoices();adapter?.clear();locationLabel();render();text('candidate-summary','尚未检索候选站点');status('分析已清空；保留本机缓存和调用计数。');});
   $('settings-form').addEventListener('submit',e=>e.preventDefault());
-  $('settings-form').addEventListener('input',()=>{if(!$('settings-form').checkValidity()){status('请输入范围内的计算参数，当前保留上次有效结果。',true);return;}state.params=M.settings(Object.fromEntries(new FormData($('settings-form'))));adapter?.updateBounds(state.params);render();status('参数已更新，已用现有距离重算；没有调用 API。');});
-  $('reset-settings').addEventListener('click',()=>{state.params={...M.DEFAULTS};writeSettings();adapter?.updateBounds(state.params);render();status('已恢复 TfL 默认计算参数；没有调用 API。');});
+  $('settings-form').addEventListener('input',()=>{if(!$('settings-form').checkValidity()){status('请输入范围内的计算参数，当前保留上次有效结果。',true);return;}state.params=M.settings(Object.fromEntries(new FormData($('settings-form'))));adapter?.updateBounds(state.params);render();status('参数已更新，已用现有距离重算；没有新增查询。');});
+  $('reset-settings').addEventListener('click',()=>{state.params={...M.DEFAULTS};writeSettings();adapter?.updateBounds(state.params);render();status('已恢复 TfL 默认计算参数；没有新增查询。');});
   $('add-form').elements.namedItem('mode').addEventListener('change',()=>{$('add-form').elements.namedItem('freq').value=$('add-form').elements.namedItem('mode').value==='bus'?4:12;});
   $('add-form').addEventListener('submit',event=>{
     event.preventDefault();if(state.busy||!$('add-form').reportValidity())return;
     const data=Object.fromEntries(new FormData($('add-form')));if(!data.route.trim()||!data.stop.trim()){status('线路和站点名称不能为空。',true);return;}
-    state.services.push({id:`manual-${++manualId}`,mode:data.mode,route:data.route.trim(),stop:data.stop.trim(),distance:Number(data.distance),freq:Number(data.freq),distanceSource:'manual',freqSource:'manual',enabled:true,path:[]});state.assessed=true;render();status('已添加并重算；没有调用 API。');
+    state.services.push({id:`manual-${++manualId}`,mode:data.mode,route:data.route.trim(),stop:data.stop.trim(),distance:Number(data.distance),freq:Number(data.freq),distanceSource:'manual',freqSource:'manual',enabled:true,path:[]});state.assessed=true;render();status('已添加并重算；没有新增查询。');
   });
   $('service-filter').addEventListener('input',renderTable);$('show-excluded').addEventListener('change',renderTable);
   $('breakdown-body').addEventListener('change',event=>{
@@ -246,13 +246,13 @@
     const svc=state.services.find(s=>s.id===input.closest('tr').dataset.id);if(!svc)return;
     if(field==='enabled')svc.enabled=input.checked;
     else{if(input.value===''||!input.reportValidity()){status('请输入有效的非负数值；当前保留原结果。',true);return;}svc[field]=Number(input.value);if(field==='freq')svc.freqSource='manual';else{svc.distanceSource='manual';svc.distanceError='';svc.path=[];adapter?.clearPath();}}
-    render();status('线路数据已更新并重算；没有调用 API。');
+    render();status('线路数据已更新并重算；没有新增查询。');
   });
   $('breakdown-body').addEventListener('click',async event=>{
     const btn=event.target.closest('button[data-action]');if(!btn||state.busy)return;
     const svc=state.services.find(s=>s.id===btn.closest('tr').dataset.id);if(!svc)return;
-    if(btn.dataset.action==='remove'){state.services=state.services.filter(s=>s!==svc);if(svc.automatic&&state.session){state.session.removed??=new Set();state.session.removed.add(svc.id);}render();status('已移除线路并重算；没有调用 API。');}
-    else{if(!adapter?.map)await enableMap();if(adapter?.showPath(svc)){$('map-container').scrollIntoView({behavior:'smooth',block:'center'});status(`${svc.route} · ${svc.stop}：高德步行距离 ${svc.distance} 米，显示缓存路径，没有新增 API 请求。`);}}
+    if(btn.dataset.action==='remove'){state.services=state.services.filter(s=>s!==svc);if(svc.automatic&&state.session){state.session.removed??=new Set();state.session.removed.add(svc.id);}render();status('已移除线路并重算；没有新增查询。');}
+    else{if(!adapter?.map)await enableMap();if(adapter?.showPath(svc)){$('map-container').scrollIntoView({behavior:'smooth',block:'center'});status(`${svc.route} · ${svc.stop}：高德步行距离 ${svc.distance} 米，显示缓存路径，没有新增查询。`);}}
   });
   function download(content,type,name){const url=URL.createObjectURL(new Blob([content],{type})),a=element('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   $('export-json').addEventListener('click',()=>{
@@ -267,7 +267,7 @@
   $('import-btn').addEventListener('click',()=>$('import-file').click());
   $('import-file').addEventListener('change',async()=>{
     const file=$('import-file').files[0];if(!file)return;
-    try{if(file.size>2*1024*1024)throw new Error('方案文件不能超过 2 MiB');const raw=JSON.parse(await file.text()),plan=M.importPlan(raw);cancel();Object.assign(state,plan,{assessed:true,session:null,scope:null,warnings:['导入方案：仅校核已录入数据，未重新查询地图或验证来源。',...(Array.isArray(raw.warnings)?raw.warnings.filter(s=>typeof s==='string').slice(0,20).map(s=>s.slice(0,300)):[])]});selectedInput=state.location?.name||'';$('map-input').value=selectedInput;hideChoices();writeSettings();locationLabel();if(state.location)adapter?.locate(state.location.coords,state.location.name,state.params);else adapter?.clear();render();status(`已导入 ${plan.services.length} 项线路；没有调用 API。`);}catch(error){status(`导入失败：${error.message}，原方案保留。`,true);}finally{$('import-file').value='';}
+    try{if(file.size>2*1024*1024)throw new Error('方案文件不能超过 2 MiB');const raw=JSON.parse(await file.text()),plan=M.importPlan(raw);cancel();Object.assign(state,plan,{assessed:true,session:null,scope:null,warnings:['导入方案：仅校核已录入数据，未重新查询地图或验证来源。',...(Array.isArray(raw.warnings)?raw.warnings.filter(s=>typeof s==='string').slice(0,20).map(s=>s.slice(0,300)):[])]});selectedInput=state.location?.name||'';$('map-input').value=selectedInput;hideChoices();writeSettings();locationLabel();if(state.location)adapter?.locate(state.location.coords,state.location.name,state.params);else adapter?.clear();render();status(`已导入 ${plan.services.length} 项线路；没有新增查询。`);}catch(error){status(`导入失败：${error.message}，原方案保留。`,true);}finally{$('import-file').value='';}
   });
   $('clear-cache').addEventListener('click',()=>{(adapter?.store||store).clearCache();status('路线和站点缓存已清除；调用计数保留，下次查询会消耗额度。');});
   $('api-settings-toggle').addEventListener('click',()=>{const open=$('api-settings').hidden;showApiSettings(open);if(open)$('api-key').focus();});
@@ -275,7 +275,7 @@
   $('api-settings-form').addEventListener('submit',event=>{
     event.preventDefault();if(!$('api-settings-form').reportValidity())return;
     const config={key:$('api-key').value.trim(),securityJsCode:$('api-security-code').value.trim()};
-    if(Boolean(config.key)!==Boolean(config.securityJsCode)||/\s/.test(config.key+config.securityJsCode)){apiStatus('Key 和安全密钥需同时填写，或同时清空以使用 Cloudflare；不能包含空白字符。',true);return;}
+    if(Boolean(config.key)!==Boolean(config.securityJsCode)||/\s/.test(config.key+config.securityJsCode)){apiStatus('Key 和安全密钥需同时填写，或同时清空使用默认服务；不能包含空白字符。',true);return;}
     applyApiSettings(config.key?config:{});
   });
   async function enableMap(){
@@ -291,7 +291,7 @@
       plan.services.forEach((svc,i)=>{const path=saved.services[i].path;if(Array.isArray(path)&&path.length<=100000&&path.every(point=>M.coordinates(point)))svc.path=path.map(point=>M.coordinates(point));});
       Object.assign(state,plan,{assessed:saved.assessed===true,warnings:Array.isArray(saved.warnings)?saved.warnings.filter(item=>typeof item==='string').slice(0,100):[],scope:saved.scope&&Number.isFinite(saved.scope.busMax)&&Number.isFinite(saved.scope.luMax)?saved.scope:null});
       selectedInput=state.location?.name||'';$('map-input').value=typeof saved.query==='string'?saved.query.slice(0,200):selectedInput;writeSettings();
-      status('高德 API 配置已更新，当前分析已恢复；下次查询使用新配置。');showApiSettings(true);apiStatus('配置已应用，当前分析已恢复；尚未验证密钥有效性。');
-  }catch{status('未能恢复上次分析；API 配置可在「高德 API 设置」中查看。',true);}
+      status('个人设置已更新，当前分析已恢复。');showApiSettings(true);apiStatus('设置已保存，当前分析已恢复。');
+  }catch{status('未能恢复上次分析；可在「个人设置」中查看已保存的配置。',true);}
   locationLabel();render();
 })();

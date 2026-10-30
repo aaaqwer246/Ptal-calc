@@ -40,14 +40,14 @@ export default {async fetch(request,env){
     return respond(new Response(null,{status:204,headers:{'Access-Control-Allow-Methods':'GET','Access-Control-Max-Age':'600'}}));
   }
   if(request.method!=='GET')return respond(fail(405,'METHOD_NOT_ALLOWED','仅允许 GET 请求'));
-  if((map||config)&&(!env.AMAP_JS_KEY||!env.AMAP_JS_SECRET))return respond(fail(503,'MAP_NOT_CONFIGURED','站点地图尚未配置，请管理员在 Cloudflare 添加 AMAP_JS_KEY 和 AMAP_JS_SECRET'));
-  if((map||config)&&env.AMAP_JS_KEY===env.AMAP_KEY)return respond(fail(503,'MAP_KEY_PLATFORM','地图与查询不能使用同一串 Key，请管理员配置 Web端 JS Key'));
+  if((map||config)&&(!env.AMAP_JS_KEY||!env.AMAP_JS_SECRET))return respond(fail(503,'MAP_NOT_CONFIGURED','默认地图暂不可用，可稍后重试或填写个人配置'));
+  if((map||config)&&env.AMAP_JS_KEY===env.AMAP_KEY)return respond(fail(503,'MAP_KEY_PLATFORM','默认地图暂不可用，请联系管理员'));
   let params;try{
     if(map)params=mapParams(url,env.AMAP_JS_KEY);
     else if(config){if(url.search)throw Error('地图配置接口不接受参数');}
     else params=validate(action,url.searchParams);
   }catch(error){return respond(fail(400,'INVALID_PARAMS',error.message));}
-  if((!map&&!config&&!env.AMAP_KEY)||!env.IP_LIMITER||!env.BUDGET)return respond(fail(503,'NOT_CONFIGURED','查询服务尚未完成配置'));
+  if((!map&&!config&&!env.AMAP_KEY)||!env.IP_LIMITER||!env.BUDGET)return respond(fail(503,'NOT_CONFIGURED','默认查询服务暂不可用，请稍后重试'));
   try{
     const ip=request.headers.get('CF-Connecting-IP');
     if(!ip)return respond(fail(403,'CLIENT_UNKNOWN','无法识别请求来源'));
@@ -66,7 +66,7 @@ export class QuotaGate{
     let params;try{params=map?mapParams(url,this.env.AMAP_JS_KEY):validate(action,url.searchParams);}catch{return fail(400,'INVALID_PARAMS','内部参数错误');}
     const now=Date.now(),day=new Date(now+8*3600000).toISOString().slice(0,10);
     const daily=Number(map?this.env.MAP_DAILY_LIMIT||this.env.DAILY_LIMIT:this.env.DAILY_LIMIT),perMinute=Number(this.env.MINUTE_LIMIT),budgetKey=map?'map-quota':'quota';
-    if(!Number.isSafeInteger(daily)||daily<1||!Number.isSafeInteger(perMinute)||perMinute<1)return fail(503,'NOT_CONFIGURED','服务预算配置无效');
+    if(!Number.isSafeInteger(daily)||daily<1||!Number.isSafeInteger(perMinute)||perMinute<1)return fail(503,'NOT_CONFIGURED','查询服务暂不可用，请稍后重试');
     const decision=await this.state.storage.transaction(async txn=>{
       const old=await txn.get(budgetKey)||{},minute=Math.floor(now/60000);
       const q={day,daily:old.day===day?old.daily:0,minute,count:old.minute===minute?old.count:0,blockedUntil:old.blockedUntil||0};
@@ -96,7 +96,7 @@ export class QuotaGate{
         }
         if(['10004','10014','10019','10020','10021'].includes(code))return fail(429,'AMAP_RATE_LIMIT','高德请求限流，请稍后重试');
         if(['10000','10016','10017'].includes(code))return fail(502,'AMAP_UNAVAILABLE','高德接口异常，请稍后重试');
-        return fail(502,'AMAP_ERROR','高德拒绝查询，请管理员核对 Key 类型、权限及服务配置');
+        return fail(502,'AMAP_ERROR','高德查询失败，请稍后重试或检查个人设置');
       }
       // 不回传 Key、请求 URL 或不需要的上游字段。
       const result=action==='walking'?{route:data.route}:action==='tips'?{tips:data.tips}:{count:data.count,pois:data.pois};
