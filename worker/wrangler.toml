@@ -7,6 +7,7 @@ workers_dev = true
 ALLOWED_ORIGINS = "https://aaaqwer246.github.io,https://ptal-calc.zhouguillaume111750.workers.dev,http://127.0.0.1:8765,http://localhost:8765"
 DAILY_LIMIT = "1000"
 MINUTE_LIMIT = "120"
+MAP_DAILY_LIMIT = "1000"
 
 [[ratelimits]]
 name = "IP_LIMITER"

@@ -17,7 +17,7 @@
   function apiStatus(message,error=false){text('api-settings-status',message);$('api-settings-status').classList.toggle('error',error);}
   function writeApiSettings(){
     $('api-key').value=mapConfig.key||'';$('api-security-code').value=mapConfig.securityJsCode||'';
-    apiStatus(mapConfig.key&&mapConfig.securityJsCode?'当前使用浏览器保存的配置；尚未验证密钥有效性。':'尚未配置，请填写 Web端 Key 和安全密钥。');
+    apiStatus(mapConfig.key&&mapConfig.securityJsCode?'默认使用站点地图配置；站点尚未配置时使用本浏览器保存的配置。':'默认使用站点地图配置，无需填写；仅管理员需要在 Cloudflare 设置。');
   }
   function showApiSettings(open){$('api-settings').hidden=!open;$('api-settings-toggle').setAttribute('aria-expanded',String(open));}
   function applyApiSettings(config){
@@ -285,7 +285,6 @@
   }
   $('enable-map').addEventListener('click',enableMap);
   writeApiSettings();
-  if(!mapConfig.key||!mapConfig.securityJsCode)showApiSettings(true);
   let resume;try{resume=sessionStorage.getItem(API_RESUME_KEY);if(resume)sessionStorage.removeItem(API_RESUME_KEY);}catch{}
   if(resume)try{
       const saved=JSON.parse(resume),plan=M.importPlan(saved);

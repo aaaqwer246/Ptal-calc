@@ -13,7 +13,7 @@
 
 ## 请求与配额
 
-GitHub Pages 提供静态页面，Cloudflare Worker 调用高德 Web 服务。JS API 仅用于按需加载地图；联想、地点详情、搜索、站点周边及步行查询均经 Worker。JS Key 与 jscode 仍由地图设置填写，属于浏览器端配置，不能与服务器 Web 服务 Key 混用。
+GitHub Pages 提供静态页面，Cloudflare Worker 调用高德 Web 服务。JS API 仅用于按需加载地图；联想、地点详情、搜索、站点周边及步行查询均经 Worker。地图默认读取 Worker 的站点统一配置，访问者无需填写 Key。管理员在 Cloudflare 配置地图用的 `AMAP_JS_KEY` 和 `AMAP_JS_SECRET`；jscode 仅由服务器附加。JS Key 用于加载地图，浏览器可见，须限制域名；Web 服务 Key 始终保密。两种平台 Key 不可混用。
 
 - 400毫秒联想防抖、输入法组词保护、旧响应丢弃、取消队列及网络请求；同坐标接入点共享步行距离。
 - 仅在当前页面内存复用结果，最多300项；刷新失效，启动时删除旧版持久化接口缓存。Worker 不缓存高德数据，响应禁用 HTTP 缓存。方案导出是用户主动操作，分享及再利用仍需遵守数据授权。
@@ -40,7 +40,7 @@ GitHub Pages 提供静态页面，Cloudflare Worker 调用高德 Web 服务。JS
 
 - `index.html`、`styles.css`、`src/`：静态前端，无需构建。
 - `src/deployment.js`：公开 Worker 地址，不能填写任何 Web 服务密钥。
-- `worker/index.mjs`、`worker/wrangler.toml`：后端与绑定配置。
+- `worker/index.mjs`、`worker/map.mjs`、`worker/wrangler.toml`：后端与绑定配置。
 - `tests/`：计算模型、适配器及 Worker 模拟集成测试。
 
 运行 `node --test tests/*.test.cjs`；测试使用模拟响应，不消耗高德配额，不能代替上线后的真实联调。

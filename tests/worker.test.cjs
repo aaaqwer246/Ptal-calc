@@ -96,3 +96,49 @@ test('启用底图后业务服务仍使用 Worker；429阻止同操作后续请�
     await assert.rejects(pending,error=>error.name==='AbortError');
   }finally{global.fetch=saved.fetch;global.AMap=saved.AMap;global.document=saved.document;global.PTAL_DEPLOYMENT=saved.config;}
 });
+test('站点地图配置只公开JS Key；代理固定目标、隐藏jscode、预算与查询独立',async()=>{
+  const {worker,env,records}=await fixture(),old=global.fetch;
+  env.AMAP_JS_KEY='test-public-js-key';env.AMAP_JS_SECRET='test-private-js-secret';env.MAP_DAILY_LIMIT='2';
+  try{
+    let upstream=0;
+    global.fetch=async(input,options)=>{
+      upstream++;const url=new URL(input);assert.equal(url.hostname,'webapi.amap.com');assert.equal(url.pathname,'/v4/map/styles');
+      assert.equal(url.searchParams.get('key'),env.AMAP_JS_KEY);assert.equal(url.searchParams.get('jscode'),env.AMAP_JS_SECRET);assert.equal(options.redirect,'manual');
+      return new Response('AMap.cb({});',{headers:{'Content-Type':'application/javascript'}});
+    };
+    const config=await worker.fetch(request('/api/map-config'),env),data=await config.json();
+    assert.deepEqual(data,{key:env.AMAP_JS_KEY,serviceHost:'https://worker.test/_AMapService'});assert.equal(upstream,0);
+    assert.equal(JSON.stringify(data).includes(env.AMAP_KEY),false);assert.equal(JSON.stringify(data).includes(env.AMAP_JS_SECRET),false);
+    records.set('quota',{day:'2000-01-01',daily:1000,blockedUntil:Date.now()+60000});
+    const path='/_AMapService/v4/map/styles?key=test-public-js-key&callback=AMap.cb&styleid=normal';
+    const proxy=await worker.fetch(request(path,{headers:{Referer:origin+'/Ptal-calc/','CF-Connecting-IP':'127.0.0.1'}}),env);
+    assert.equal(proxy.status,200);assert.equal(await proxy.text(),'AMap.cb({});');assert.equal(proxy.headers.get('Cache-Control'),'no-store');
+    assert.equal((await worker.fetch(request(path),env)).status,200);assert.equal((await worker.fetch(request(path),env)).status,429);assert.equal(upstream,2);
+    for(const extra of ['&url=https://evil.test','&jscode=evil','&callback=evil()','&key=second'])assert.equal((await worker.fetch(request(path+extra),env)).status,400);
+    assert.equal((await worker.fetch(request('/_AMapService/v3/place/text'),env)).status,404);
+    assert.equal((await worker.fetch(request(path,{headers:{Referer:'https://evil.test'}}),env)).status,403);
+    const missing=await fixture();assert.equal((await missing.worker.fetch(request('/api/map-config'),missing.env)).status,503);
+  }finally{global.fetch=old;}
+});
+test('无个人Key也能加载站点地图，jscode和Web服务Key不进入浏览器配置',async()=>{
+  require('../src/worker-client.js');require('../src/amap.js');
+  const saved={fetch:global.fetch,AMap:global.AMap,document:global.document,config:global.PTAL_DEPLOYMENT,security:global._AMapSecurityConfig};let scriptUrl;
+  try{
+    global.AMap=undefined;global.PTAL_DEPLOYMENT={workerUrl:'https://worker.test'};
+    global.fetch=async(input)=>{assert.match(String(input),/\/api\/map-config$/);return Response.json({key:'test-shared-js-key',serviceHost:'https://worker.test/_AMapService'});};
+    global.document={getElementById:()=>({replaceChildren(){}}),createElement:()=>({dataset:{}}),head:{append(script){scriptUrl=script.src;global.AMap={Map:class{on(){}}};global.__ptalMapReady();}}};
+    const adapter=await PTALMap.Adapter.connect({},{});await adapter.attachMap(()=>{});
+    assert.equal(new URL(scriptUrl).searchParams.get('key'),'test-shared-js-key');
+    assert.deepEqual(global._AMapSecurityConfig,{serviceHost:'https://worker.test/_AMapService'});
+  }finally{global.fetch=saved.fetch;global.AMap=saved.AMap;global.document=saved.document;global.PTAL_DEPLOYMENT=saved.config;global._AMapSecurityConfig=saved.security;}
+});
+test('地图配置拒绝误用Web服务Key，上游意外回显的密钥不会发给浏览器',async()=>{
+  const {worker,env}=await fixture(),old=global.fetch;
+  env.AMAP_JS_KEY=env.AMAP_KEY;env.AMAP_JS_SECRET='test-private-js-secret';
+  try{
+    const wrong=await worker.fetch(request('/api/map-config'),env);assert.equal(wrong.status,503);assert.doesNotMatch(await wrong.text(),new RegExp(env.AMAP_KEY));
+    env.AMAP_JS_KEY='test-shared-js-key';global.fetch=async()=>new Response(env.AMAP_JS_SECRET,{headers:{'Content-Type':'application/javascript'}});
+    const response=await worker.fetch(request('/_AMapService/v4/map/styles?callback=AMap.cb'),env);
+    assert.equal(response.status,502);assert.doesNotMatch(await response.text(),new RegExp(env.AMAP_JS_SECRET));
+  }finally{global.fetch=old;}
+});

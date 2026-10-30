@@ -12,7 +12,7 @@
 <div class="panel-body">
 <div id="api-settings" class="api-settings" hidden>
 <form id="api-settings-form" autocomplete="off">
-<p class="hint">仅地图展示需要 Web端（JS API）Key 和 jscode；Web 服务 Key 由服务器保管，不要填在这里。</p>
+<p class="hint">地图与查询默认使用站点统一配置，无需填写。以下个人地图配置仅在站点地图尚未配置时备用；不要填写 Web 服务 Key。</p>
 <div class="api-fields"><label for="api-key">Web端 Key<input id="api-key" type="password" maxlength="200" autocomplete="off" spellcheck="false" required></label><label for="api-security-code">安全密钥（jscode）<input id="api-security-code" type="password" maxlength="200" autocomplete="off" spellcheck="false" required></label></div>
 <div class="actions api-actions"><button class="btn primary" type="submit">保存并应用</button><label class="hint"><input id="api-show-secrets" type="checkbox"> 显示密钥</label></div>
 <p id="api-settings-status" class="hint" role="status" aria-live="polite"></p>

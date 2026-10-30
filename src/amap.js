@@ -33,15 +33,28 @@
   }
   async function load(config) {
     if (root.AMap?.Map) return root.AMap;
-    if (!config?.key||!config?.securityJsCode) throw new Error('未配置地图：请打开「高德 API 设置」填写 Key 和安全密钥');
-    root._AMapSecurityConfig={securityJsCode:config.securityJsCode};
+    let selected=config;
+    const base=root.PTAL_DEPLOYMENT?.workerUrl;
+    if(base){
+      try{selected=await root.PTALWorker.services(base).mapConfig();}
+      catch(error){if(error.code!=='MAP_NOT_CONFIGURED'||!config?.key||!config?.securityJsCode)throw error;}
+    }
+    if(!selected?.key)throw new Error('站点地图尚未配置，请管理员添加地图配置');
+    if(selected.serviceHost){
+      const host=new URL(selected.serviceHost);
+      if(host.origin!==new URL(base).origin||host.pathname!=='/_AMapService'||host.search||host.hash||host.username||host.password)throw new Error('地图安全代理地址无效');
+      root._AMapSecurityConfig={serviceHost:host.href};
+    }else{
+      if(!selected.securityJsCode)throw new Error('地图安全配置不完整');
+      root._AMapSecurityConfig={securityJsCode:selected.securityJsCode};
+    }
     await new Promise((resolve,reject)=>{
       const script=document.createElement('script'); let finished=false;
       const finish=error=>{if(finished)return;finished=true;clearTimeout(timer);root.__ptalMapReady=()=>{};error?reject(error):resolve();};
       const timer=setTimeout(()=>finish(new Error('地图加载超时，请检查网络后刷新；手动计算仍可使用')),15000);
       root.__ptalMapReady=()=>finish();
       const url=new URL('https://webapi.amap.com/maps');
-      url.search=new URLSearchParams({v:'2.0',key:config.key,callback:'__ptalMapReady'}).toString();
+      url.search=new URLSearchParams({v:'2.0',key:selected.key,callback:'__ptalMapReady'}).toString();
       script.dataset.ptalSdk='';script.src=url.toString();script.onerror=()=>finish(new Error('地图脚本加载失败，请检查网络后刷新'));document.head.append(script);
     });
     if (!root.AMap?.Map) throw new Error('地图搜索插件未就绪，请刷新后重试');

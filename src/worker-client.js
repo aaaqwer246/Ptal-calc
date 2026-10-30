@@ -19,6 +19,7 @@
         const data=await response.json();
         if(!response.ok||data.error){
           const error=new Error(data.error?.message||'Worker 接口异常');
+          error.code=data.error?.code;
           if(signal&&[429,503].includes(response.status))blocked.set(signal,error);
           throw error;
         }
@@ -36,7 +37,7 @@
     }
     class AutoComplete{async search(text,cb,signal){const data=await query('tips',{keywords:text},signal);cb('complete',{tips:(data.tips||[]).map(point)});}}
     class Walking{async search(origin,destination,cb,signal){const data=await query('walking',{origin:origin.join(','),destination:destination.join(',')},signal);cb('complete',{routes:(data.route?.paths||[]).map(p=>({...p,steps:(p.steps||[]).map(s=>({path:(s.polyline||'').split(';').filter(Boolean).map(x=>x.split(',').map(Number))}))}))});}}
-    return {PlaceSearch,AutoComplete,Walking};
+    return {PlaceSearch,AutoComplete,Walking,mapConfig:()=>query('map-config',{})};
   }
   root.PTALWorker={services};
 })(globalThis);

@@ -52,7 +52,8 @@ async function mockAMap(){
     const url=pathToFileURL(path.join(root,'index.html')).href;
     await page.goto(url);await page.waitForFunction(()=>document.getElementById('quota-status').textContent.length>0);
     assert.equal(external.length,0,'打开页面不应发起高德请求');assert.equal(await page.locator('#ai-value').innerText(),'—');
-    assert.equal(await page.locator('#api-settings').isVisible(),true,'首次使用自动展开 API 设置');
+    assert.equal(await page.locator('#api-settings').isVisible(),false,'默认使用站点地图，无需填写个人Key');
+    await page.locator('#api-settings-toggle').click();
     assert.equal(await page.locator('#api-use-file').count(),0,'统一使用浏览器配置');
     await page.locator('#api-key').fill('test-browser-key');await page.locator('#api-security-code').fill('test-browser-code');await page.getByRole('button',{name:'保存并应用',exact:true}).click();
     await page.reload();assert.equal(await page.evaluate(()=>PTAL_MAP_CONFIG.key),'test-browser-key','刷新后读取浏览器配置');

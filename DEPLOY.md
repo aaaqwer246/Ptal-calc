@@ -2,7 +2,7 @@
 
 ## 1. 高德
 
-为本应用申请 **Web 服务 API** Key，确认地点搜索、输入提示和步行规划权限及配额。此 Key 只作为 Cloudflare 的 `AMAP_KEY` Secret 保存，不填入网页，不提交仓库。地图展示另用 **Web端 JS API** Key 及配套 jscode，在网页原有设置中填写，并在高德控制台限定实际网站域名。
+为本应用申请 **Web 服务 API** Key，确认地点搜索、输入提示和步行规划权限及配额。此 Key 只作为 Cloudflare 的 `AMAP_KEY` Secret 保存，不填入网页，不提交仓库。地图展示另用同一账号下的 **Web端 JS API** Key 及配套 jscode，分别保存为 Cloudflare 的 `AMAP_JS_KEY`、`AMAP_JS_SECRET` Secret。访问者无需填写。高德不允许同一串 Key 跨平台使用。JS Key 会用于浏览器加载地图，无法作为保密凭据；在高德控制台将域名限制为实际部署域名及需要使用的本地域名。jscode 和 Web 服务 Key 不下发到浏览器。
 
 高德服务协议对缓存、封装、转供和数据再利用有约束；本实现是本应用专用服务端调用，并非供第三方使用的通用代理。是否符合具体应用及商业使用授权应向高德确认，不能仅凭本实现认定已获授权。Worker 不使用 KV、Cache API 或数据库保存高德响应；浏览器只在页面内存复用查询。用户主动导出含高德数据的方案，分享、长期保存或再利用需另行确认授权。
 
@@ -21,15 +21,20 @@ $env:npm_config_cache='E:\Codex临时文件\npm-cache'
 npx wrangler login
 npx wrangler deploy --config worker/wrangler.toml
 npx wrangler secret put AMAP_KEY --config worker/wrangler.toml
+npx wrangler secret put AMAP_JS_KEY --config worker/wrangler.toml
+npx wrangler secret put AMAP_JS_SECRET --config worker/wrangler.toml
 ```
 
-最后一条命令会交互读取 Key，不要把 Key 写在命令行参数中。首次发布至 Secret 设置完成前，业务接口返回503。
+Secret 命令会交互读取 Key 或安全密钥，不要把 Key 写在命令行参数中。首次发布至 Secret 设置完成前，业务接口返回503。
 
 控制台 **Workers & Pages → ptal-api → Settings** 核对：
 
 | 项目 | 值 |
 | --- | --- |
 | Variables and Secrets | `AMAP_KEY`：Secret，填 Web 服务 Key |
+| Variables and Secrets | `AMAP_JS_KEY`：Secret，填 Web端（JS API）Key；加载地图时浏览器仍可见 |
+| Variables and Secrets | `AMAP_JS_SECRET`：Secret，填该 JS Key 配套的安全密钥 jscode |
+| Variables | `MAP_DAILY_LIMIT=1000`：地图代理的全站每日预算，与查询熔断分开 |
 | Variables | `ALLOWED_ORIGINS`：逗号分隔的完整来源，如 `https://aaaqwer246.github.io`，不含路径和末尾斜杠 |
 | Variables | `DAILY_LIMIT=1000`、`MINUTE_LIMIT=120`：全站上游尝试预算，按实际套餐调整 |
 | Bindings | `IP_LIMITER`：每60秒120次，配置见 wrangler.toml |
@@ -55,14 +60,18 @@ CORS 只限制浏览器，不是身份验证；非浏览器可伪造 Origin。�
 
 Worker 的 `ALLOWED_ORIGINS` 应为 `https://aaaqwer246.github.io,https://ptal-calc.zhouguillaume111750.workers.dev,http://127.0.0.1:8765,http://localhost:8765`，仓库配置已包含这些来源，重新部署后生效。也可在 Cloudflare 控制台修改同名普通变量并部署；保留 `AMAP_KEY` Secret。不要允许 `null` 来源或 `*`。本地使用与线上共用高德配额及预算。
 
-本地页面与 GitHub Pages 的浏览器存储分别独立，若要显示地图需在本地页面重新填写 Web端 JS Key 及 jscode，并确认高德允许本地域名；站点及步行业务仍使用 Worker 中的 Web 服务 Key。
+本地和网站默认使用同一份站点地图配置，均无需输入个人 Key。地图配置只在启用地图时读取；`/api/map-config` 只返回 JS Key 和安全代理地址，不返回 jscode。`/_AMapService/v4/map/init` 与 `/_AMapService/v4/map/styles` 是固定目标代理，不接受外部 URL 或客户端 jscode；地图代理也受 IP 限流和独立全站预算保护，不缓存高德响应。JSONP 请求没有 Origin 时核对 Referer 的来源，仍不能视为身份认证。
+
+缺少站点地图配置时明确提示管理员添加 Secret；为兼容此前保存的个人配置，此时仍可用网页原有设置作为备用。正常配置站点地图后优先采用站点配置，不采用或覆盖访问者保存的个人 Key。
 
 ## 5. 验收
 
 运行 `node --test tests/*.test.cjs`。本地测试覆盖计算模型、完整分页、取消、Worker 跨域与参数拒绝、限流、全站预算、配额熔断、异常响应及前后端数据转换，全部使用模拟数据。
 
-部署后在网站输入一个地点并选择入口，验证公交及地铁候选、实际步行距离、路径展示、取消、强制刷新、手动修改和导出。开发者工具中业务请求应只到 Worker，只有地图 SDK 请求使用 Web端 JS Key；任何前端文件、浏览器存储及请求中都不应出现 Web 服务 Key。确认没有直接调用 restapi.amap.com。未配置 JS Key 时地点及步行业务仍可使用，地图展示需要另填配置。
+部署后在网站输入一个地点并选择入口，验证公交及地铁候选、实际步行距离、路径展示、取消、强制刷新、手动修改和导出。开发者工具中业务请求应只到 Worker，只有地图 SDK 请求使用 Web端 JS Key；任何前端文件、浏览器存储及请求中都不应出现 Web 服务 Key。确认没有直接调用 restapi.amap.com。地图启用后应从 Worker 读取站点配置；浏览器不应出现 `AMAP_JS_SECRET`。缺少地图 Secret 不影响站点及步行业务。
 
 直接请求 Worker 但不带 Origin 或带非白名单 Origin 应返回403；非法坐标、未知参数及客户端 Key 返回400。限流与预算返回429；上游异常返回502、超时504、未配置503。不要用真实 Key 故意耗尽配额，配额异常通过自动测试模拟。
 
 参考：[高德 Web 服务文档](https://lbs.amap.com/api/webservice/summary/)、[服务协议](https://lbs.amap.com/pages/terms)、[Cloudflare Secrets](https://developers.cloudflare.com/workers/configuration/secrets/)、[限流绑定](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)、[GitHub Pages 套餐](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。
+
+地图安全代理依据：[高德 JS API 安全密钥使用](https://lbs.amap.com/api/javascript-api-v2/guide/abc/jscode)。
