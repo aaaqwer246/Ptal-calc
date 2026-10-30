@@ -1,6 +1,7 @@
 (function(root){
   'use strict';
   function services(base,store){
+    if(root.location?.protocol==='file:')throw new Error('本地联网查询请使用「启动本地计算器.cmd」打开，直接双击网页仅支持手动计算');
     const blocked=new WeakMap();
     const url=new URL(base);
     if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)throw new Error('请配置有效的 HTTPS Worker 地址');

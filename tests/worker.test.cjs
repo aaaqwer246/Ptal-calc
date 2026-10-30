@@ -22,6 +22,21 @@ test('Worker 白名单、预检、方法、任意URL及非法参数均在上游�
     assert.equal(pre.status,204);assert.equal(pre.headers.get('Access-Control-Allow-Origin'),origin);assert.equal(calls,0);
   }finally{global.fetch=old;}
 });
+test('部署白名单允许固定本地端口，拒绝文件来源、其他端口和外部网站',async()=>{
+  const {worker,env}=await fixture();
+  const config=require('node:fs').readFileSync(require('node:path').join(__dirname,'../worker/wrangler.toml'),'utf8');
+  env.ALLOWED_ORIGINS=config.match(/^ALLOWED_ORIGINS = "([^"]+)"/m)[1];
+  for(const source of ['http://127.0.0.1:8765','http://localhost:8765','https://ptal-calc.zhouguillaume111750.workers.dev',origin]){
+    const response=await worker.fetch(request('/api/walking?origin=999,31&destination=121,31',{headers:{Origin:source}}),env);
+    assert.equal(response.status,400);assert.equal(response.headers.get('Access-Control-Allow-Origin'),source);
+  }
+  for(const source of ['null','http://127.0.0.1:9999','https://evil.test'])assert.equal((await worker.fetch(request(undefined,{headers:{Origin:source}}),env)).status,403);
+});
+test('直接打开本地HTML时提示使用本地启动入口',()=>{
+  require('../src/worker-client.js');const saved=global.location;
+  try{global.location={protocol:'file:'};assert.throws(()=>PTALWorker.services('https://worker.test'),/启动本地计算器.cmd/);}
+  finally{if(saved===undefined)delete global.location;else global.location=saved;}
+});
 test('前端通过 Worker 完成地点、站点分页与步行数据转换；Key 仅出现在上游',async()=>{
   const {worker,env}=await fixture();const old=global.fetch;let upstream=[];
   global.PTAL=require('../src/model.js');require('../src/worker-client.js');require('../src/amap.js');const {LocalStore}=require('../src/cache.js');

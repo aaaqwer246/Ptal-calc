@@ -49,7 +49,15 @@ CORS 只限制浏览器，不是身份验证；非浏览器可伪造 Origin。�
 
 私密仓库能否使用 Pages 取决于 GitHub 套餐；GitHub Free 的私密仓库不提供此能力，需要适用的付费套餐。仓库私密不等于部署页面具有访问控制。本次读取该仓库时 `has_pages=false`，尚未检测到 Pages 配置。
 
-## 4. 验收
+## 4. 本地使用
+
+双击 `启动本地计算器.cmd`，或运行 `python serve.py`，打开 `http://127.0.0.1:8765/`。需要 Python 3；本机已安装。服务只监听本机，只提供前端文件，不保存密钥或代理业务请求。关闭启动窗口即可停止。
+
+Worker 的 `ALLOWED_ORIGINS` 应为 `https://aaaqwer246.github.io,https://ptal-calc.zhouguillaume111750.workers.dev,http://127.0.0.1:8765,http://localhost:8765`，仓库配置已包含这些来源，重新部署后生效。也可在 Cloudflare 控制台修改同名普通变量并部署；保留 `AMAP_KEY` Secret。不要允许 `null` 来源或 `*`。本地使用与线上共用高德配额及预算。
+
+本地页面与 GitHub Pages 的浏览器存储分别独立，若要显示地图需在本地页面重新填写 Web端 JS Key 及 jscode，并确认高德允许本地域名；站点及步行业务仍使用 Worker 中的 Web 服务 Key。
+
+## 5. 验收
 
 运行 `node --test tests/*.test.cjs`。本地测试覆盖计算模型、完整分页、取消、Worker 跨域与参数拒绝、限流、全站预算、配额熔断、异常响应及前后端数据转换，全部使用模拟数据。
 
