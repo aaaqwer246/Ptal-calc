@@ -53,13 +53,13 @@ test('单IP限流、全站预算、配额熔断、错误响应与网络超时不
     env.IP_LIMITER.limit=async()=>({success:false});assert.equal((await worker.fetch(request(),env)).status,429);assert.equal(calls,0);
     env.IP_LIMITER.limit=async()=>({success:true});const exhausted=await worker.fetch(request(),env);assert.equal(exhausted.status,429);assert.match(await exhausted.text(),/AMAP_QUOTA/);
     const next=await worker.fetch(request(),env);assert.equal(next.status,429);assert.equal(calls,1);assert.doesNotMatch(await next.text(),new RegExp(env.AMAP_KEY));
-    for(const scenario of ['budget','minute','http','json','timeout','rate','missing']){
+    for(const scenario of ['budget','minute','http','redirect','json','timeout','rate','missing']){
       const f=await fixture();
       if(scenario==='budget')f.env.DAILY_LIMIT='1';if(scenario==='minute')f.env.MINUTE_LIMIT='1';if(scenario==='missing')delete f.env.AMAP_KEY;
-      global.fetch=async()=>{if(scenario==='http')return new Response('',{status:503});if(scenario==='json')return new Response('oops');if(scenario==='timeout')throw new DOMException('timeout','AbortError');if(scenario==='rate')return Response.json({status:'0',infocode:'10004'});return Response.json({status:'1',route:{paths:[]}});};
+      global.fetch=async(_,options)=>{assert.equal(options.redirect,'manual');if(scenario==='http')return new Response('',{status:503});if(scenario==='redirect')return new Response('',{status:302,headers:{Location:'https://untrusted.test'}});if(scenario==='json')return new Response('oops');if(scenario==='timeout')throw new DOMException('timeout','AbortError');if(scenario==='rate')return Response.json({status:'0',infocode:'10004'});return Response.json({status:'1',route:{paths:[]}});};
       const first=await f.worker.fetch(request(),f.env);
       if(['budget','minute'].includes(scenario)){assert.equal(first.status,200);assert.equal((await f.worker.fetch(request(),f.env)).status,429);}
-      else assert.equal(first.status,{http:502,json:502,timeout:504,rate:429,missing:503}[scenario]);
+      else assert.equal(first.status,{http:502,redirect:502,json:502,timeout:504,rate:429,missing:503}[scenario]);
     }
   }finally{global.fetch=old;}
 });

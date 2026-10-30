@@ -71,7 +71,7 @@ export class QuotaGate{
     upstream.search=params.toString();
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
     try{
-      const response=await fetch(upstream,{signal:controller.signal,redirect:'error',cache:'no-store'});
+      const response=await fetch(upstream,{signal:controller.signal,redirect:'manual',cache:'no-store'});
       if(!response.ok)return fail(502,'UPSTREAM_HTTP','高德服务异常，请稍后重试');
       const data=await response.json();
       if(String(data.status)!=='1'){
