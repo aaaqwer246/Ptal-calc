@@ -1,77 +1,120 @@
-# 部署
+微信公众号：Guillaume的工作间
 
-## 1. 高德
+# 部署说明
 
-为本应用申请 **Web 服务 API** Key，确认地点搜索、输入提示和步行规划权限及配额。此 Key 只作为 Cloudflare 的 `AMAP_KEY` Secret 保存，不填入网页，不提交仓库。地图展示另用同一账号下的 **Web端 JS API** Key 及配套 jscode，分别保存为 Cloudflare 的 `AMAP_JS_KEY`、`AMAP_JS_SECRET` Secret。访问者无需填写。高德不允许同一串 Key 跨平台使用。JS Key 会用于浏览器加载地图，无法作为保密凭据；在高德控制台将域名限制为实际部署域名及需要使用的本地域名。jscode 和 Web 服务 Key 不下发到浏览器。
+本项目由网页和默认查询服务两部分组成。网页可部署到 GitHub Pages，也可本地运行；默认服务部署到 Cloudflare Workers。日常使用见 [README.md](README.md)。
 
-高德服务协议对缓存、封装、转供和数据再利用有约束；本实现是本应用专用服务端调用，并非供第三方使用的通用代理。是否符合具体应用及商业使用授权应向高德确认，不能仅凭本实现认定已获授权。Worker 不使用 KV、Cache API 或数据库保存高德响应；浏览器只在页面内存复用查询。用户主动导出含高德数据的方案，分享、长期保存或再利用需另行确认授权。
+网页填写了个人高德 Key 和配套安全密钥时，地图与查询全部优先使用个人配置，不调用默认服务。两项清空并保存后，才使用下面的默认服务配置。个人配置出错时不会自动切换。
 
-若 Web 服务 Key 必须绑定固定出口 IP，普通 Workers 的出口不能视为固定 IP，需先与高德确认适用接入方式，不应伪造 IP 或关闭必须的授权检查。
+## 一、准备高德配置
 
-## 2. Cloudflare Workers
+在高德开放平台为本应用准备两种 Key，不能用同一串 Key 跨平台调用。
 
-在项目根目录的 PowerShell 中执行（需 Node.js、Cloudflare 登录；临时依赖放 E 盘）：
+| 用途 | 高德平台类型 | Cloudflare 中的名称 |
+| --- | --- | --- |
+| 地点、站点和步行查询 | Web 服务 API | `AMAP_KEY` |
+| 地图展示 | Web端（JS API） | `AMAP_JS_KEY` |
+| 地图 Key 配套的安全密钥 jscode | 与上一项对应 | `AMAP_JS_SECRET` |
 
-```powershell
-New-Item -ItemType Directory -Force 'E:\Codex临时文件\npm-cache' | Out-Null
-$env:TEMP='E:\Codex临时文件'
-$env:TMP='E:\Codex临时文件'
-$env:TMPDIR='E:\Codex临时文件'
-$env:npm_config_cache='E:\Codex临时文件\npm-cache'
-npx wrangler login
-npx wrangler deploy --config worker/wrangler.toml
-npx wrangler secret put AMAP_KEY --config worker/wrangler.toml
-npx wrangler secret put AMAP_JS_KEY --config worker/wrangler.toml
-npx wrangler secret put AMAP_JS_SECRET --config worker/wrangler.toml
+这三项都在 Cloudflare 中保存为 **Secret**，不要写入源码或提交到仓库。
+
+地图用的 JS Key 在加载地图时仍会被浏览器看到，应在高德控制台限制允许使用的域名。默认服务的 Web 服务 Key 和 jscode 保留在服务器，不发给浏览器。若 Web 服务 Key 必须绑定固定出口 IP，需先确认接入方式；普通 Workers 不提供可据此假定的固定出口 IP。
+
+## 二、部署默认服务
+
+### 连接仓库
+
+1. 在 Cloudflare 的 **Workers & Pages** 中创建应用，连接 GitHub。
+2. 选择本项目仓库；私密仓库需要单独授权 Cloudflare 访问。
+3. 按下表填写后部署：
+
+| 设置项 | 内容 |
+| --- | --- |
+| Worker 名称 | `ptal-api` |
+| 分支 | `main` |
+| 根目录／Path | `/worker` |
+| 构建命令 | 留空 |
+| 部署命令 | `npx wrangler deploy --config wrangler.toml` |
+
+`worker/wrangler.toml` 已包含运行入口、限流和配额存储配置。不要只上传网页文件或在网页编辑器里粘贴部分后端代码。
+
+### 添加密钥
+
+部署完成后，进入 **ptal-api → Settings → Variables and secrets**，添加上一节的三个 Secret，保存并部署。
+
+已有 Secret 不需要随每次代码更新重新填写。Secret 尚未设置完整时，对应的默认查询或地图功能会提示暂不可用。
+
+### 核对变量和绑定
+
+以下默认值已写入 `worker/wrangler.toml`：
+
+| 名称 | 默认值／作用 |
+| --- | --- |
+| `ALLOWED_ORIGINS` | 允许访问服务的网页来源 |
+| `DAILY_LIMIT` | 查询代理每日最多尝试 1000 次上游请求 |
+| `MAP_DAILY_LIMIT` | 地图代理每日最多尝试 1000 次上游请求 |
+| `MINUTE_LIMIT` | 查询和地图代理分别每分钟最多尝试 120 次 |
+| `IP_LIMITER` | 单 IP 每 60 秒最多 120 次请求，属于边缘近似限流 |
+| `BUDGET` | 绑定 `QuotaGate`，统一记录预算和查询熔断状态 |
+
+两个绑定由部署配置自动创建。全站预算按北京时间换日，已发出的失败请求也计数；这些是站点保护上限，不代表高德实际配额或账单。地图加载的其他请求不一定经过代理，也不能用地图代理计数代替完整用量统计。
+
+修改控制台中的普通变量后，也应同步修改配置文件，避免下次部署覆盖。不要删除已有的 `QuotaGate` 对象来处理部署错误。
+
+## 三、设置允许访问的来源
+
+`ALLOWED_ORIGINS` 用英文逗号分隔。每项只写协议、域名和端口，不带页面路径或末尾斜杠。
+
+例如，网页地址是 `https://aaaqwer246.github.io/Ptal-calc/`，对应的来源应写为 `https://aaaqwer246.github.io`。
+
+当前配置已包含：
+
+- `https://aaaqwer246.github.io`
+- `https://ptal-calc.zhouguillaume111750.workers.dev`
+- `http://127.0.0.1:8765`
+- `http://localhost:8765`
+
+更换网站域名或本地端口后，需要修改白名单并重新部署。不要使用 `*`，也不要为了允许直接打开 HTML 文件而添加 `null` 来源。
+
+来源白名单不是身份验证。公开接口仍可能被非浏览器请求滥用；限流、全站预算和配额熔断用于限制上游消耗，不能阻止所有请求到达 Cloudflare，也不能保证服务不被占满。
+
+## 四、发布网页
+
+1. 将 `src/deployment.js` 中的 `workerUrl` 填为控制台给出的 HTTPS 服务地址，不带 `/api`。该地址可以公开，不要在这个文件中填写密钥。
+2. 将前端及配套文件提交到 GitHub 仓库的 `main` 分支根目录。
+3. 进入仓库 **Settings → Pages → Deploy from a branch**，选择 `main` 和 `/(root)`。
+4. 部署完成后，以 Pages 控制台给出的地址访问，并确认该地址的来源已加入白名单。
+
+前端无需构建，也不需要在 GitHub 中添加高德 Secret。使用既有静态托管项目时，同样要更新网页文件，并将实际来源加入白名单。`ptal-api` 提供后台服务，不替代网页托管。
+
+私密仓库能否使用 GitHub Pages 取决于账号套餐。仓库私密不等于网站具有访问控制。不要上传 `.env`、`.dev.vars`、`.wrangler/`、`node_modules/`、临时文件或真实密钥。
+
+## 五、本地运行
+
+安装 Python 3 后，双击 `启动本地计算器.cmd`，或在项目目录运行：
+
+```sh
+python serve.py
 ```
 
-Secret 命令会交互读取 Key 或安全密钥，不要把 Key 写在命令行参数中。首次发布至 Secret 设置完成前，业务接口返回503。
+浏览器会打开 `http://127.0.0.1:8765/`。使用期间保持启动窗口打开，关闭窗口即可停止。服务仅监听本机并提供前端文件，不保存密钥或转发业务请求。
 
-控制台 **Workers & Pages → ptal-api → Settings** 核对：
+直接双击 `index.html` 仅支持手动计算。个人配置保存在当前浏览器、当前网址下，正常关闭后仍保留；本地网页和线上网页的配置分别独立。
 
-| 项目 | 值 |
-| --- | --- |
-| Variables and Secrets | `AMAP_KEY`：Secret，填 Web 服务 Key |
-| Variables and Secrets | `AMAP_JS_KEY`：Secret，填 Web端（JS API）Key；加载地图时浏览器仍可见 |
-| Variables and Secrets | `AMAP_JS_SECRET`：Secret，填该 JS Key 配套的安全密钥 jscode |
-| Variables | `MAP_DAILY_LIMIT=1000`：地图代理的全站每日预算，与查询熔断分开 |
-| Variables | `ALLOWED_ORIGINS`：逗号分隔的完整来源，如 `https://aaaqwer246.github.io`，不含路径和末尾斜杠 |
-| Variables | `DAILY_LIMIT=1000`、`MINUTE_LIMIT=120`：全站上游尝试预算，按实际套餐调整 |
-| Bindings | `IP_LIMITER`：每60秒120次，配置见 wrangler.toml |
-| Bindings | `BUDGET`：QuotaGate Durable Object，由 Wrangler 的迁移自动创建 |
-| Domains & Routes | 启用 HTTPS workers.dev 地址或自定义域名 |
+## 六、更新与检查
 
-绑定及迁移应通过 Wrangler 创建，仅在网页编辑器粘贴后端代码不足以部署完整服务。以后用 Wrangler 再部署时，以配置文件中的变量为准；更改控制台变量后应同步修改 `wrangler.toml`。真实域名不同时修改白名单，不能使用 `*`。`namespace_id` 如与账户其他限流器冲突，请改为该账户独立编号。
+更新代码后，确认网页托管和 `ptal-api` 都部署了所需的新版本，再刷新网页。只更新后台，不会自动替换另一处托管的网页文件。
 
-CORS 只限制浏览器，不是身份验证；非浏览器可伪造 Origin。当前服务是公开应用接口，依靠固定路由、参数校验、单 IP 频率、全站预算和日配额熔断保护。攻击者仍可能消耗预算导致正常用户不可用。需要成员专用访问时，应另配身份验证或 Cloudflare Access，并相应设计 GitHub Pages 的登录与跨域流程；不要把所谓代理口令放在公开前端。Cloudflare 请求量和费用另计，预算闸门只限制高德上游次数，不限制攻击请求到达 Cloudflare 的次数。不要开启记录完整上游 URL 或密钥的日志。
+部署后的检查：
 
-## 3. GitHub Pages
+1. 填写个人配置，确认地图、地点和步行查询使用个人 JS API，没有调用默认服务。
+2. 清空两项并保存，确认切回默认服务；更换配置后原有分析能够恢复。
+3. 查询一个地点，检查公交、地铁候选、实际步行距离及路径显示，再验证取消、手动修改、方案导入导出。
+4. 关闭并重新打开同一浏览器，确认个人配置仍在。不要在无痕窗口中测试长期保存。
+5. 使用默认服务时，确认服务器的 `AMAP_KEY`、`AMAP_JS_SECRET` 实际值没有下发给浏览器或写入源码；地图 JS Key 可见是正常现象。
 
-1. 将 `src/deployment.js` 的 `workerUrl` 设为部署得到的 HTTPS 地址，如 `https://ptal-api.<你的子域>.workers.dev`（不带 `/api`）。该地址可以公开。配置留空时明确提示未配置，手动计算仍可使用。
-2. 将项目文件上传到既有 `aaaqwer246/Ptal-calc` 仓库的 `main` 分支根目录。不要上传 `artifacts/`、`.dev.vars`、`.env`、`.wrangler/`、`node_modules/` 或本地密钥。
-3. **Settings → Pages → Deploy from a branch → main → /(root)**。无需前端构建，不需要在 GitHub 添加 `AMAP_KEY` Secret。
-4. 使用 Pages 控制台给出的真实网站地址；普通项目地址通常为 `https://aaaqwer246.github.io/Ptal-calc/`，Worker 白名单只填来源 `https://aaaqwer246.github.io`。自定义域名或受限 Pages 的独立域名应按真实地址调整。
+自动测试运行 `node --test tests/*.test.cjs`；浏览器回归运行 `node tests/browser.cjs` 和 `node tests/priority-browser.cjs`，后两项需要 Playwright 和可用浏览器。测试使用模拟数据，不能代替真实接口验证。
 
-私密仓库能否使用 Pages 取决于 GitHub 套餐；GitHub Free 的私密仓库不提供此能力，需要适用的付费套餐。仓库私密不等于部署页面具有访问控制。本次读取该仓库时 `has_pages=false`，尚未检测到 Pages 配置。
+配额耗尽或请求过频时应保留错误提示，不要反复重试、轮换 Key 或重置预算来规避高德限制。服务不会增加高德配额，也不保证第二天一定恢复。接口数据仅在当前页面内存中复用；导出、分享及其他使用仍需符合高德授权。
 
-## 4. 本地使用
-
-双击 `启动本地计算器.cmd`，或运行 `python serve.py`，打开 `http://127.0.0.1:8765/`。需要 Python 3；本机已安装。服务只监听本机，只提供前端文件，不保存密钥或代理业务请求。关闭启动窗口即可停止。
-
-Worker 的 `ALLOWED_ORIGINS` 应为 `https://aaaqwer246.github.io,https://ptal-calc.zhouguillaume111750.workers.dev,http://127.0.0.1:8765,http://localhost:8765`，仓库配置已包含这些来源，重新部署后生效。也可在 Cloudflare 控制台修改同名普通变量并部署；保留 `AMAP_KEY` Secret。不要允许 `null` 来源或 `*`。使用 Cloudflare 时，本地与线上共用公共高德配额及预算；填写个人配置时使用对应个人 Key 的额度。
-
-个人 Key 和安全密钥优先用于全部地图及业务查询；通过高德 JS API 的 AutoComplete、PlaceSearch 和 Walking 插件调用，不向公共 Worker 发送个人凭据。清空两项并保存后，本地和网站使用 Cloudflare 查询与站点地图配置。地图配置只在启用地图时读取；`/api/map-config` 只返回 JS Key 和安全代理地址，不返回 jscode。`/_AMapService/v4/map/init` 与 `/_AMapService/v4/map/styles` 是固定目标代理，不接受外部 URL 或客户端 jscode；地图代理也受 IP 限流和独立全站预算保护，不缓存高德响应。JSONP 请求没有 Origin 时核对 Referer 的来源，仍不能视为身份认证。
-
-个人配置一旦填写就优先使用，失败时直接提示，不自动切换公共额度；只填 Key 或 jscode 会提示同时填写或同时清空。更换或清空配置会重载已初始化的查询适配器并恢复当前分析，避免旧 SDK 或旧 Worker 继续处理新请求。Cloudflare 模式缺少地图配置时提示管理员添加 Secret。
-
-## 5. 验收
-
-运行 `node --test tests/*.test.cjs`。本地测试覆盖计算模型、完整分页、取消、Worker 跨域与参数拒绝、限流、全站预算、配额熔断、异常响应及前后端数据转换，全部使用模拟数据。
-
-部署后在网站输入一个地点并选择入口，验证公交及地铁候选、实际步行距离、路径展示、取消、强制刷新、手动修改和导出。Cloudflare 模式下，开发者工具中业务请求应只到 Worker；个人模式下，所有业务使用个人 JS API，不应出现公共 Worker 请求。任何前端文件、浏览器存储及请求中都不应出现 Web 服务 Key。Cloudflare 模式确认没有由前端直接调用 restapi.amap.com。Cloudflare 模式的地图启用后应从 Worker 读取站点配置；浏览器不应出现服务器的 `AMAP_JS_SECRET`。缺少地图 Secret 不影响站点及步行业务。
-
-直接请求 Worker 但不带 Origin 或带非白名单 Origin 应返回403；非法坐标、未知参数及客户端 Key 返回400。限流与预算返回429；上游异常返回502、超时504、未配置503。不要用真实 Key 故意耗尽配额，配额异常通过自动测试模拟。
-
-参考：[高德 Web 服务文档](https://lbs.amap.com/api/webservice/summary/)、[服务协议](https://lbs.amap.com/pages/terms)、[Cloudflare Secrets](https://developers.cloudflare.com/workers/configuration/secrets/)、[限流绑定](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)、[GitHub Pages 套餐](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。
-
-地图安全代理依据：[高德 JS API 安全密钥使用](https://lbs.amap.com/api/javascript-api-v2/guide/abc/jscode)。
+参考：[高德 Web 服务文档](https://lbs.amap.com/api/webservice/summary/)、[地图安全密钥接入](https://lbs.amap.com/api/javascript-api-v2/guide/abc/jscode)、[高德服务协议](https://lbs.amap.com/pages/terms)、[Cloudflare Secrets](https://developers.cloudflare.com/workers/configuration/secrets/)、[限流绑定](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)、[GitHub Pages 说明](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。
