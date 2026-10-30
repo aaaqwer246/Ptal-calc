@@ -1,0 +1,7 @@
+map-config.local.js
+artifacts/
+node_modules/
+.wrangler/
+.dev.vars*
+.env*
+!.env.example
