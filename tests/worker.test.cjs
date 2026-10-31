@@ -174,3 +174,18 @@ test('默认服务区分授权、权限、余额与到期，不泄露上游info�
     const error=(await (await worker.fetch(request(),env)).json()).error;assert.equal(error.providerCode,undefined);assert.doesNotMatch(error.message,/检查个人设置/);assert.doesNotMatch(JSON.stringify(error),new RegExp(env.AMAP_KEY));
   }finally{global.fetch=old;}
 });
+test('查询先预占预算再由入口访问上游，配额对象不接收Key和地点参数',async()=>{
+  const {worker,env,records}=await fixture(),old=global.fetch,original=env.BUDGET.get;let permitted=false,upstream=0;
+  const internal=[];
+  env.BUDGET.get=()=>{const stub=original();return {async fetch(req){
+    const url=new URL(req.url);internal.push(url.pathname);assert.equal(req.method,'POST');assert.equal(url.search,'');assert.equal(req.url.includes(env.AMAP_KEY),false);
+    const response=await stub.fetch(req);if(url.pathname==='/reserve/query')permitted=response.ok;return response;
+  }};};
+  global.fetch=async()=>{assert.equal(permitted,true);upstream++;return Response.json({status:'0',infocode:'10044'});};
+  try{
+    assert.equal((await worker.fetch(request(),env)).status,429);assert.deepEqual(internal,['/reserve/query','/block/query']);assert.equal(upstream,1);assert.ok(records.get('quota').blockedUntil>Date.now());
+    assert.equal((await worker.fetch(request(),env)).status,429);assert.equal(upstream,1);
+    const {QuotaGate}=await import('../worker/index.mjs');const gate=new QuotaGate({storage:{transaction(){throw Error('不应访问存储');}}},env);
+    assert.equal((await gate.fetch(new Request('https://internal/api/tips?key=bad'))).status,400);
+  }finally{global.fetch=old;}
+});

@@ -33,7 +33,7 @@ function cors(response,origin){
   const headers=new Headers(response.headers);
   headers.set('Access-Control-Allow-Origin',origin);headers.set('Vary','Origin');headers.set('Cache-Control','no-store');
   headers.set('Access-Control-Expose-Headers','Retry-After');
-  headers.set('X-Content-Type-Options','nosniff');
+  headers.set('X-Content-Type-Options','nosniff');headers.set('X-PTAL-Version','edge-query-20261101');
   return new Response(response.body,{status:response.status,headers});
 }
 export default {async fetch(request,env){
@@ -64,7 +64,10 @@ export default {async fetch(request,env){
     if(!(await env.IP_LIMITER.limit({key:ip})).success){const r=fail(429,'RATE_LIMITED','请求过于频繁，请等待60秒后重试');r.headers.set('Retry-After','60');return respond(r);}
     if(config)return respond(Response.json({key:env.AMAP_JS_KEY,serviceHost:`${url.origin}/_AMapService`}));
     const stub=env.BUDGET.get(env.BUDGET.idFromName('amap-global'));
-    return respond(await stub.fetch(new Request(`https://internal${map?url.pathname:`/api/${action}`}?${params}`)));
+    const permit=await stub.fetch(new Request(`https://internal/reserve/${map?'map':'query'}`,{method:'POST'}));
+    if(!permit.ok)return respond(permit);
+    if(map)return respond(await forwardMap(url,params,env));
+    return respond(await fetchQuery(action,params,env,()=>stub.fetch(new Request('https://internal/block/query',{method:'POST'}))));
   }catch{return respond(fail(503,'SERVICE_UNAVAILABLE','查询服务暂时不可用，请稍后重试'));}
 }};
 
@@ -72,10 +75,17 @@ export default {async fetch(request,env){
 export class QuotaGate{
   constructor(state,env){this.state=state;this.env=env;}
   async fetch(request){
-    const url=new URL(request.url),map=isMapPath(url.pathname),action=url.pathname.split('/').pop();
-    let params;try{params=map?mapParams(url,this.env.AMAP_JS_KEY):validate(action,url.searchParams);}catch{return fail(400,'INVALID_PARAMS','内部参数错误');}
+    const url=new URL(request.url),match=url.pathname.match(/^\/(reserve|block)\/(query|map)$/);
+    if(request.method!=='POST'||url.hostname!=='internal'||url.search||!match)return fail(400,'INVALID_PARAMS','内部请求无效');
+    const [,operation,kind]=match,map=kind==='map',budgetKey=map?'map-quota':'quota';
     const now=Date.now(),day=new Date(now+8*3600000).toISOString().slice(0,10);
-    const daily=Number(map?this.env.MAP_DAILY_LIMIT||this.env.DAILY_LIMIT:this.env.DAILY_LIMIT),perMinute=Number(this.env.MINUTE_LIMIT),budgetKey=map?'map-quota':'quota';
+    if(operation==='block'){
+      await this.state.storage.transaction(async txn=>{
+        const q=await txn.get(budgetKey)||{};q.blockedUntil=Date.parse(day+'T00:00:00+08:00')+86400000;await txn.put(budgetKey,q);
+      });
+      return Response.json({ok:true});
+    }
+    const daily=Number(map?this.env.MAP_DAILY_LIMIT||this.env.DAILY_LIMIT:this.env.DAILY_LIMIT),perMinute=Number(this.env.MINUTE_LIMIT);
     if(!Number.isSafeInteger(daily)||daily<1||!Number.isSafeInteger(perMinute)||perMinute<1)return fail(503,'NOT_CONFIGURED','查询服务暂不可用，请稍后重试');
     const decision=await this.state.storage.transaction(async txn=>{
       const old=await txn.get(budgetKey)||{},minute=Math.floor(now/60000);
@@ -84,35 +94,37 @@ export class QuotaGate{
       q.daily++;q.count++;await txn.put(budgetKey,q);return null;
     });
     if(decision){const r=fail(429,'BUDGET_LIMIT',decision==='minute'?'全站请求繁忙，请等待60秒后重试':'服务当日预算已用完或高德配额已耗尽，请联系管理员');r.headers.set('Retry-After',decision==='minute'?'60':String(Math.ceil((Date.parse(day+'T00:00:00+08:00')+86400000-now)/1000)));return r;}
-    if(map)return forwardMap(url,params,this.env);
-    const upstream=new URL(routes[action],'https://restapi.amap.com');
-    params.set('key',this.env.AMAP_KEY);params.set('output','JSON');
-    if(action==='tips'){params.set('city','上海');params.set('citylimit','false');}
-    if(action==='search'){params.set('offset','8');params.set('page','1');params.set('extensions','base');}
-    if(action==='detail')params.set('extensions','base');
-    if(action==='nearby'){params.set('offset','25');params.set('extensions','all');params.set('sortrule','distance');}
-    upstream.search=params.toString();
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
-    try{
-      const response=await fetch(upstream,{signal:controller.signal,redirect:'manual',cache:'no-store'});
-      if(!response.ok)return fail(502,'UPSTREAM_HTTP','高德服务异常，请稍后重试');
-      const data=await response.json();
-      if(String(data.status)!=='1'){
-        const code=String(data.infocode||'');
-        if(['10003','10044'].includes(code)){
-          const until=Date.parse(day+'T00:00:00+08:00')+86400000;
-          await this.state.storage.transaction(async txn=>{const q=await txn.get('quota');if(q){q.blockedUntil=until;await txn.put('quota',q);}});
-          return fail(429,'AMAP_QUOTA','高德调用配额已耗尽，服务已暂停当日请求，请检查高德控制台',code);
-        }
-        if(authorizationErrors.has(code)){const [name,message]=authorizationErrors.get(code);return fail(503,name,message,code);}
-        if(['10004','10014','10015','10019','10020','10021','10029'].includes(code))return fail(429,'AMAP_RATE_LIMIT','高德请求过于频繁，请稍后重试',code);
-        if(['10000','10016','10017'].includes(code))return fail(502,'AMAP_UNAVAILABLE','高德服务繁忙，请稍后重试',code);
-        return fail(502,'AMAP_ERROR','高德暂未完成查询，请稍后重试或使用个人配置',code);
-      }
-      // 不回传 Key、请求 URL 或不需要的上游字段。
-      const result=action==='walking'?{route:data.route}:action==='tips'?{tips:data.tips}:{count:data.count,pois:data.pois};
-      return Response.json(result,{headers:{'Cache-Control':'no-store'}});
-    }catch(error){return fail(error.name==='AbortError'?504:502,error.name==='AbortError'?'UPSTREAM_TIMEOUT':'UPSTREAM_ERROR',error.name==='AbortError'?'高德请求超时，请稍后重试':'高德接口响应异常，请稍后重试');}
-    finally{clearTimeout(timer);}
+    return Response.json({ok:true});
   }
+}
+
+async function fetchQuery(action,params,env,block){
+  const upstream=new URL(routes[action],'https://restapi.amap.com');
+  params.set('key',env.AMAP_KEY);params.set('output','JSON');
+  if(action==='tips'){params.set('city','上海');params.set('citylimit','false');}
+  if(action==='search'){params.set('offset','8');params.set('page','1');params.set('extensions','base');}
+  if(action==='detail')params.set('extensions','base');
+  if(action==='nearby'){params.set('offset','25');params.set('extensions','all');params.set('sortrule','distance');}
+  upstream.search=params.toString();
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
+  try{
+    const response=await fetch(upstream,{signal:controller.signal,redirect:'manual',cache:'no-store'});
+    if(!response.ok)return fail(502,'UPSTREAM_HTTP','高德服务异常，请稍后重试');
+    const data=await response.json();
+    if(String(data.status)!=='1'){
+      const code=String(data.infocode||'');
+      if(['10003','10044'].includes(code)){
+        await block();
+        return fail(429,'AMAP_QUOTA','高德调用配额已耗尽，服务已暂停当日请求，请检查高德控制台',code);
+      }
+      if(authorizationErrors.has(code)){const [name,message]=authorizationErrors.get(code);return fail(503,name,message,code);}
+      if(['10004','10014','10015','10019','10020','10021','10029'].includes(code))return fail(429,'AMAP_RATE_LIMIT','高德请求过于频繁，请稍后重试',code);
+      if(['10000','10016','10017'].includes(code))return fail(502,'AMAP_UNAVAILABLE','高德服务繁忙，请稍后重试',code);
+      return fail(502,'AMAP_ERROR','高德暂未完成查询，请稍后重试或使用个人配置',code);
+    }
+    // 不回传 Key、请求 URL 或不需要的上游字段。
+    const result=action==='walking'?{route:data.route}:action==='tips'?{tips:data.tips}:{count:data.count,pois:data.pois};
+    return Response.json(result,{headers:{'Cache-Control':'no-store'}});
+  }catch(error){return fail(error.name==='AbortError'?504:502,error.name==='AbortError'?'UPSTREAM_TIMEOUT':'UPSTREAM_ERROR',error.name==='AbortError'?'高德请求超时，请稍后重试':'高德接口响应异常，请稍后重试');}
+  finally{clearTimeout(timer);}
 }
