@@ -1,7 +1,17 @@
 import {isMapPath,mapParams,forwardMap} from './map.mjs';
 const routes={tips:'/v3/assistant/inputtips',search:'/v3/place/text',detail:'/v3/place/detail',nearby:'/v3/place/around',walking:'/v3/direction/walking'};
 const fields={tips:['keywords'],search:['keywords','city'],detail:['id'],nearby:['location','radius','types','page'],walking:['origin','destination']};
-const fail=(status,code,message)=>Response.json({error:{code,message}},{status,headers:{'Cache-Control':'no-store'}});
+const fail=(status,code,message,providerCode)=>Response.json({error:{code,message,...(/^\d{5}$/.test(providerCode||'')?{providerCode}:{})}},{status,headers:{'Cache-Control':'no-store'}});
+const authorizationErrors=new Map([
+  ...['10001','10013'].map(code=>[code,['AMAP_KEY_INVALID','默认服务的授权已失效，请使用个人配置或联系管理员']]),
+  ['10009',['AMAP_KEY_PLATFORM','默认服务的授权类型不匹配，请使用个人配置或联系管理员']],
+  ...['10002','10012','10041'].map(code=>[code,['AMAP_PERMISSION','默认服务尚未开通这项查询，请使用个人配置或联系管理员']]),
+  ...['10005','10006'].map(code=>[code,['AMAP_ACCESS_DENIED','默认服务的访问授权受限，请使用个人配置或联系管理员']]),
+  ...['10007','10008'].map(code=>[code,['AMAP_SIGNATURE','默认服务的授权校验失败，请使用个人配置或联系管理员']]),
+  ...['10010','10026'].map(code=>[code,['AMAP_ACCOUNT_BLOCKED','默认服务已被高德限制访问，请使用个人配置或联系管理员']]),
+  ['40000',['AMAP_BALANCE','默认服务的高德服务余额已耗尽，请使用个人配置或联系管理员']],
+  ['40002',['AMAP_EXPIRED','默认服务的高德服务已到期，请使用个人配置或联系管理员']]
+]);
 export function validate(action,params){
   if(!Object.hasOwn(routes,action))throw Error('不支持的接口');
   const allowed=fields[action];
@@ -92,11 +102,12 @@ export class QuotaGate{
         if(['10003','10044'].includes(code)){
           const until=Date.parse(day+'T00:00:00+08:00')+86400000;
           await this.state.storage.transaction(async txn=>{const q=await txn.get('quota');if(q){q.blockedUntil=until;await txn.put('quota',q);}});
-          return fail(429,'AMAP_QUOTA','高德调用配额已耗尽，服务已暂停当日请求，请检查高德控制台');
+          return fail(429,'AMAP_QUOTA','高德调用配额已耗尽，服务已暂停当日请求，请检查高德控制台',code);
         }
-        if(['10004','10014','10019','10020','10021'].includes(code))return fail(429,'AMAP_RATE_LIMIT','高德请求限流，请稍后重试');
-        if(['10000','10016','10017'].includes(code))return fail(502,'AMAP_UNAVAILABLE','高德接口异常，请稍后重试');
-        return fail(502,'AMAP_ERROR','高德查询失败，请稍后重试或检查个人设置');
+        if(authorizationErrors.has(code)){const [name,message]=authorizationErrors.get(code);return fail(503,name,message,code);}
+        if(['10004','10014','10015','10019','10020','10021','10029'].includes(code))return fail(429,'AMAP_RATE_LIMIT','高德请求过于频繁，请稍后重试',code);
+        if(['10000','10016','10017'].includes(code))return fail(502,'AMAP_UNAVAILABLE','高德服务繁忙，请稍后重试',code);
+        return fail(502,'AMAP_ERROR','高德暂未完成查询，请稍后重试或使用个人配置',code);
       }
       // 不回传 Key、请求 URL 或不需要的上游字段。
       const result=action==='walking'?{route:data.route}:action==='tips'?{tips:data.tips}:{count:data.count,pois:data.pois};

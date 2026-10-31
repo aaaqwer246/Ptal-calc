@@ -162,3 +162,15 @@ test('个人配置优先用于地图和全部业务，Key失败或填写不完�
     await assert.rejects(PTALMap.Adapter.connect({key:'only-key'},new LocalStore()),/同时填写/);assert.equal(calls.worker,0);
   }finally{global.fetch=saved.fetch;global.AMap=saved.AMap;global.document=saved.document;global.PTAL_DEPLOYMENT=saved.config;global._AMapSecurityConfig=saved.security;}
 });
+test('默认服务区分授权、权限、余额与到期，不泄露上游info或误提示个人配置有错',async()=>{
+  const old=global.fetch;
+  try{
+    for(const [providerCode,code,detail] of [['10001','AMAP_KEY_INVALID','授权已失效'],['10009','AMAP_KEY_PLATFORM','授权类型不匹配'],['10041','AMAP_PERMISSION','尚未开通'],['40000','AMAP_BALANCE','余额已耗尽'],['40002','AMAP_EXPIRED','服务已到期']]){
+      const {worker,env}=await fixture();global.fetch=async()=>Response.json({status:'0',infocode:providerCode,info:env.AMAP_KEY});
+      const response=await worker.fetch(request(),env),error=(await response.json()).error;
+      assert.equal(response.status,503);assert.equal(error.code,code);assert.equal(error.providerCode,providerCode);assert.match(error.message,new RegExp(detail));assert.doesNotMatch(JSON.stringify(error),new RegExp(env.AMAP_KEY));
+    }
+    const {worker,env}=await fixture();global.fetch=async()=>Response.json({status:'0',infocode:'bad-'+env.AMAP_KEY,info:env.AMAP_KEY});
+    const error=(await (await worker.fetch(request(),env)).json()).error;assert.equal(error.providerCode,undefined);assert.doesNotMatch(error.message,/检查个人设置/);assert.doesNotMatch(JSON.stringify(error),new RegExp(env.AMAP_KEY));
+  }finally{global.fetch=old;}
+});
