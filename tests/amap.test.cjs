@@ -50,6 +50,20 @@ test('取消后忽略迟到结果，并停止继续排队的请求',async()=>{
   const promise=adapter.measure([{key:'a',routes:['1路'],location:[121,31]},{key:'b',routes:['2路'],location:[122,31]}],[121,30],controller.signal,()=>{});
   setTimeout(()=>controller.abort(),1);await assert.rejects(promise,error=>error.name==='AbortError');assert.ok(calls.walk<=1);
 });
+
+test('个人步行插件仅传3参，默认服务保留取消信号',async()=>{
+  const signal=new AbortController().signal;
+  for(const source of ['personal','cloudflare']){
+    const {adapter}=fixture();adapter.source=source;
+    adapter.A.Walking=class{search(origin,destination,cb,extra){
+      assert.equal(arguments.length,source==='personal'?3:4);
+      assert.equal(extra,source==='personal'?undefined:signal);
+      cb('complete',{routes:[{distance:200,steps:[{path:[origin,destination]}]}]});
+    }};
+    const result=await adapter.walking([121.621976,31.210978],[121.622,31.211],signal);
+    assert.equal(result.distance,200);assert.equal(result.path.length,2);
+  }
+});
 test('真实域名拒绝码必须说明原因，失败和空结果不能缓存为正常候选',async()=>{
   const {adapter,store}=fixture();let calls=0;
   adapter.A.PlaceSearch=class{setPageIndex(){}searchNearBy(_,coords,radius,cb){calls++;cb('error','INVALID_USER_DOMAIN');}};

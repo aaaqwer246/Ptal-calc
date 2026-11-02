@@ -163,7 +163,8 @@
       const start=Math.max(Date.now(),this.nextWalkingAt);this.nextWalkingAt=start+600;
       await delay(Math.max(0,start-Date.now()),signal);
       const walker=new this.A.Walking({hideMarkers:true});
-      const result=await this.call(cb=>walker.search(origin,destination,cb,signal),signal);
+      // JS 插件的第4参是内部地点结果；仅默认服务接收取消信号。
+      const result=await this.call(cb=>this.source==='cloudflare'?walker.search(origin,destination,cb,signal):walker.search(origin,destination,cb),signal);
       const routes=(result?.routes||[]).filter(r=>r.distance!==null&&r.distance!==''&&Number.isFinite(Number(r.distance))&&Number(r.distance)>=0);
       if(!routes.length)throw new Error('未取得可用步行路线');
       const route=routes.reduce((a,b)=>Number(a.distance)<=Number(b.distance)?a:b);
